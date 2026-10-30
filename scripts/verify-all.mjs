@@ -1,6 +1,6 @@
 import assert from 'assert';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
 
 async function runTests() {
   console.log('🚀 Starting Cadence Serverless Attendance Management System Verification\n');
@@ -12,20 +12,28 @@ async function runTests() {
       this.cookie = '';
     }
 
-    async fetch(url, options = {}) {
+    async fetch(url, options = {}, retries = 2) {
       const headers = { ...(options.headers || {}) };
       if (this.cookie) {
         headers['Cookie'] = this.cookie;
       }
-      const res = await fetch(`${BASE_URL}${url}`, { ...options, headers });
-      const rawCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
-      for (const sc of rawCookies) {
-        const match = sc.match(/(cadence_auth_session=[^;]+)/);
-        if (match) {
-          this.cookie = match[1];
+      try {
+        const res = await fetch(`${BASE_URL}${url}`, { ...options, headers });
+        const rawCookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
+        for (const sc of rawCookies) {
+          const match = sc.match(/(cadence_auth_session=[^;]+)/);
+          if (match) {
+            this.cookie = match[1];
+          }
         }
+        return res;
+      } catch (err) {
+        if (retries > 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+          return this.fetch(url, options, retries - 1);
+        }
+        throw err;
       }
-      return res;
     }
 
     async postJson(url, data) {
