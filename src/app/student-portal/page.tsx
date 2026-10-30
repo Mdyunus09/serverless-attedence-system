@@ -21,9 +21,11 @@ import {
   Check,
   X as XIcon,
   AlertTriangle,
+  Camera,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AuthUser } from '@/lib/auth/types';
+import CameraQRScanner from '@/components/CameraQRScanner';
 
 function StudentCheckInContent() {
   const router = useRouter();
@@ -33,6 +35,7 @@ function StudentCheckInContent() {
   const [portalTab, setPortalTab] = useState<'checkin' | 'records'>('checkin');
   const [token, setToken] = useState(urlToken);
   const [studentId, setStudentId] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [personalAttendance, setPersonalAttendance] = useState<any>(null);
@@ -90,9 +93,10 @@ function StudentCheckInContent() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token.trim() || !studentId.trim()) return;
+  const verifyCheckInToken = async (tokenToVerify: string, idToVerify?: string) => {
+    const rawToken = tokenToVerify.trim();
+    const rawId = (idToVerify || studentId || currentUser?.studentId || currentUser?.email || '').trim();
+    if (!rawToken || !rawId) return;
 
     setLoading(true);
     setFeedback(null);
@@ -102,8 +106,8 @@ function StudentCheckInContent() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          qrToken: token.trim(),
-          studentIdOrEmail: studentId.trim(),
+          qrToken: rawToken,
+          studentIdOrEmail: rawId,
         }),
       });
 
@@ -136,6 +140,19 @@ function StudentCheckInContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleScanSuccess = (scannedToken: string) => {
+    setToken(scannedToken);
+    setIsScanning(false);
+    // Automatically trigger server-side verification with scanned token
+    verifyCheckInToken(scannedToken);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token.trim() || !studentId.trim()) return;
+    await verifyCheckInToken(token, studentId);
   };
 
   const isStudentLocked = currentUser?.role === 'student';
@@ -268,6 +285,39 @@ function StudentCheckInContent() {
                     Timestamp: {new Date().toLocaleTimeString()} • Verified by Cryptographic Token
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Mobile Camera-Based QR Scanner / Scan Button */}
+            {isScanning ? (
+              <CameraQRScanner
+                onScan={handleScanSuccess}
+                onClose={() => setIsScanning(false)}
+              />
+            ) : (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedback(null);
+                    setIsScanning(true);
+                  }}
+                  className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#d9ad3c] via-[#ecd068] to-[#d9ad3c] hover:opacity-95 text-black font-bold text-sm transition-all duration-150 flex items-center justify-center gap-2.5 shadow-lg shadow-[#d9ad3c]/20 cursor-pointer border border-[#d9ad3c]/50 active:scale-[0.99]"
+                >
+                  <Camera className="w-5 h-5 text-black" />
+                  <span>Scan Lecture QR Code</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-black/15 text-black uppercase tracking-wider font-semibold">
+                    Mobile Camera
+                  </span>
+                </button>
+
+                <div className="flex items-center gap-3 text-xs">
+                  <div className="flex-1 h-px bg-white/10" />
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-[#9e988f]">
+                    or enter token manually
+                  </span>
+                  <div className="flex-1 h-px bg-white/10" />
+                </div>
               </div>
             )}
 
