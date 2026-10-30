@@ -10,6 +10,8 @@
     "db:init": "node scripts/init-db.mjs"
   },
   "dependencies": {
+    "@neon/config": "^1.9.6",
+    "@neon/env": "^1.6.6",
     "@neondatabase/serverless": "^0.10.1",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",

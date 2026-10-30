@@ -105,12 +105,14 @@ export function getPgPool(): Pool | null {
 export async function getDatabaseStatus(): Promise<DatabaseStatus> {
   const connStr = process.env.DATABASE_URL;
   const isConfigured = isRealDatabaseUrl(connStr);
+  const hostMatch = connStr?.match(/@([^/:]+)/);
+  const host = hostMatch ? hostMatch[1] : 'ep-round-waterfall-a1jn5z1a-pooler.ap-southeast-1.aws.neon.tech';
 
   if (!isConfigured) {
     return {
       connected: false,
       provider: 'memory-fallback',
-      host: 'ep-bold-silence-b3bw8hxt-pooler.c-4.ap-southeast-1.aws.neon.tech',
+      host,
       database: 'neondb',
       user: 'neondb_owner',
       message: 'Neon connection URL has placeholder password. Using high-fidelity operational storage.',
@@ -140,7 +142,7 @@ export async function getDatabaseStatus(): Promise<DatabaseStatus> {
     return {
       connected: true,
       provider: 'neon-postgresql',
-      host: 'ep-bold-silence-b3bw8hxt-pooler.c-4.ap-southeast-1.aws.neon.tech',
+      host,
       database: res.rows[0]?.db || 'neondb',
       user: res.rows[0]?.usr || 'neondb_owner',
       latencyMs,
@@ -414,6 +416,43 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
   } finally {
     client.release();
   }
+}
+
+// Queries for Departments
+export async function getDepartments(): Promise<Department[]> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM departments ORDER BY code ASC');
+      if (res.rows.length > 0) return res.rows;
+    } catch (e) {
+      console.warn('Neon getDepartments error, fallback:', e);
+    }
+  }
+  return memoryStore.departments;
+}
+
+export async function createDepartment(data: Omit<Department, 'id'>): Promise<Department> {
+  const newDept: Department = {
+    ...data,
+    id: `dept-${Date.now()}`,
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        'INSERT INTO departments (id, code, name, faculty_head) VALUES ($1, $2, $3, $4)',
+        [newDept.id, newDept.code, newDept.name, newDept.faculty_head]
+      );
+    } catch (e) {
+      console.warn('Neon createDepartment error:', e);
+    }
+  }
+
+  memoryStore.departments.push(newDept);
+  addAuditLog('Admin', 'DEPARTMENT_CREATED', 'Department', newDept.id, `Created department ${newDept.name} (${newDept.code})`);
+  return newDept;
 }
 
 // Queries for Courses
@@ -723,17 +762,74 @@ export async function bulkUpdateAttendance(
   return true;
 }
 
-export async function verifyQRCodeCheckIn(qrToken: string, studentRollOrEmail: string): Promise<{ success: boolean; message: string; studentName?: string; courseTitle?: string }> {
-  // Find session with this active token
-  const activeSession = memoryStore.sessions.find((s) => s.qr_token === qrToken && !s.is_closed);
+export async function verifyQRCodeCheckIn(
+  qrToken: string,
+  studentRollOrEmail: string
+): Promise<{ success: boolean; message: string; studentName?: string; courseTitle?: string }> {
+  const normToken = qrToken.trim();
+  const normIdent = studentRollOrEmail.trim().toLowerCase();
+  const pool = getPgPool();
+
+  let activeSession: Session | null = null;
+  let student: Student | null = null;
+
+  // 1. Look up session in PostgreSQL or memory
+  if (pool) {
+    try {
+      const sessRes = await pool.query(
+        `SELECT * FROM sessions 
+         WHERE qr_token = $1 AND (is_closed = FALSE OR is_closed IS NULL) AND (status != 'closed' OR status IS NULL)
+         LIMIT 1`,
+        [normToken]
+      );
+      if (sessRes.rows.length > 0) {
+        activeSession = sessRes.rows[0];
+      }
+    } catch (e) {
+      console.warn('Neon verifyQRCodeCheckIn session lookup error:', e);
+    }
+  }
+
+  if (!activeSession) {
+    activeSession = memoryStore.sessions.find(
+      (s) => s.qr_token === normToken && !s.is_closed && s.status !== 'closed'
+    ) || null;
+  }
+
   if (!activeSession) {
     return { success: false, message: 'Invalid or expired QR code session token.' };
   }
 
-  const student = memoryStore.students.find(
-    (s) => s.roll_number.toLowerCase() === studentRollOrEmail.toLowerCase().trim() ||
-           s.email.toLowerCase() === studentRollOrEmail.toLowerCase().trim()
-  );
+  // 2. Expiration check (15s rotation window with 5s network grace tolerance)
+  if (activeSession.qr_expires_at) {
+    const expiresMs = new Date(activeSession.qr_expires_at).getTime();
+    if (Date.now() > expiresMs + 5000) {
+      return { success: false, message: 'QR Code has expired (15-second rotation). Please scan the current code.' };
+    }
+  }
+
+  // 3. Look up student in PostgreSQL or memory
+  if (pool) {
+    try {
+      const stuRes = await pool.query(
+        `SELECT * FROM students 
+         WHERE LOWER(roll_number) = $1 OR LOWER(email) = $1 OR id = $1
+         LIMIT 1`,
+        [normIdent]
+      );
+      if (stuRes.rows.length > 0) {
+        student = stuRes.rows[0];
+      }
+    } catch (e) {
+      console.warn('Neon verifyQRCodeCheckIn student lookup error:', e);
+    }
+  }
+
+  if (!student) {
+    student = memoryStore.students.find(
+      (s) => s.roll_number.toLowerCase() === normIdent || s.email.toLowerCase() === normIdent || s.id === normIdent
+    ) || null;
+  }
 
   if (!student) {
     return { success: false, message: 'Student roll number / institutional email not recognized.' };
@@ -743,16 +839,102 @@ export async function verifyQRCodeCheckIn(qrToken: string, studentRollOrEmail: s
     return { success: false, message: 'Check-in failed: Student account has been deactivated by administration.' };
   }
 
-  const course = memoryStore.courses.find((c) => c.id === activeSession.course_id);
-  await updateStudentAttendance(activeSession.id, student.id, 'present', 'Verified via QR Self Check-In');
+  // 4. Enrollment check
+  if (activeSession.class_id && student.class_id && activeSession.class_id !== student.class_id) {
+    return { success: false, message: `This lecture is reserved for class ${activeSession.class_id}. You are not enrolled.` };
+  }
 
-  addAuditLog(student.name, 'SELF_QR_CHECKIN', 'Session', activeSession.id, `Student checked in successfully via Dynamic QR token`);
+  // 5. Duplicate scan prevention
+  if (pool) {
+    try {
+      const dupRes = await pool.query(
+        'SELECT status FROM attendance_records WHERE session_id = $1 AND student_id = $2',
+        [activeSession.id, student.id]
+      );
+      if (dupRes.rows.length > 0 && dupRes.rows[0].status === 'present') {
+        return { success: false, message: 'Duplicate scan rejected: Your attendance is already recorded as Present.' };
+      }
+    } catch (e) {
+      // Ignore fallback
+    }
+  }
+
+  const existingMemRec = memoryStore.attendanceRecords.find(
+    (r) => r.session_id === activeSession!.id && r.student_id === student!.id
+  );
+  if (existingMemRec && existingMemRec.status === 'present') {
+    return { success: false, message: 'Duplicate scan rejected: Your attendance is already recorded as Present.' };
+  }
+
+  // 6. Record verified attendance
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const attId = `att-${activeSession.id}-${student.id}`;
+
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO attendance_records (id, session_id, student_id, status, check_in_time, remarks, updated_by, updated_at)
+         VALUES ($1, $2, $3, 'present', $4, 'Verified via 15s Dynamic QR Token', $5, NOW())
+         ON CONFLICT (session_id, student_id)
+         DO UPDATE SET status = 'present', check_in_time = EXCLUDED.check_in_time, remarks = EXCLUDED.remarks, updated_at = NOW()`,
+        [attId, activeSession.id, student.id, timeStr, student.name]
+      );
+    } catch (e) {
+      console.warn('Neon verifyQRCodeCheckIn insert error:', e);
+    }
+  }
+
+  if (!existingMemRec) {
+    memoryStore.attendanceRecords.push({
+      id: attId,
+      session_id: activeSession.id,
+      student_id: student.id,
+      status: 'present',
+      check_in_time: timeStr,
+      remarks: 'Verified via 15s Dynamic QR Token',
+      updated_by: student.name,
+      updated_at: new Date().toISOString(),
+    });
+  } else {
+    existingMemRec.status = 'present';
+    existingMemRec.check_in_time = timeStr;
+    existingMemRec.remarks = 'Verified via 15s Dynamic QR Token';
+    existingMemRec.updated_by = student.name;
+    existingMemRec.updated_at = new Date().toISOString();
+  }
+
+  let courseTitle = 'Lecture';
+  let courseCode = 'CS';
+  if (pool) {
+    try {
+      const cRes = await pool.query('SELECT code, title FROM courses WHERE id = $1', [activeSession.course_id]);
+      if (cRes.rows.length > 0) {
+        courseCode = cRes.rows[0].code;
+        courseTitle = cRes.rows[0].title;
+      }
+    } catch (e) {
+      // Fallback
+    }
+  }
+  const memCourse = memoryStore.courses.find((c) => c.id === activeSession!.course_id);
+  if (memCourse) {
+    courseCode = memCourse.code;
+    courseTitle = memCourse.title;
+  }
+
+  addAuditLog(
+    student.name,
+    'SELF_QR_CHECKIN',
+    'Session',
+    activeSession.id,
+    `Student checked in successfully via 15-second dynamic QR token for ${courseCode}`
+  );
 
   return {
     success: true,
-    message: `Attendance recorded: Present for ${course?.code} (${activeSession.title})`,
+    message: `Attendance marked Present for ${courseCode}: ${activeSession.title}`,
     studentName: student.name,
-    courseTitle: course?.title,
+    courseTitle: courseTitle,
   };
 }
 
@@ -977,18 +1159,36 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
 }
 
 // User & Authentication queries
-export async function findUserByEmail(email: string): Promise<User | null> {
-  const normalized = email.trim().toLowerCase();
+export async function findUserByEmail(identifier: string): Promise<User | null> {
+  const normalized = identifier.trim().toLowerCase();
   const pool = getPgPool();
   if (pool) {
     try {
-      const res = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 LIMIT 1', [normalized]);
+      // Look up by direct email or student roll number / id
+      const res = await pool.query(`
+        SELECT u.* FROM users u
+        LEFT JOIN students s ON (u.student_id = s.id OR LOWER(u.email) = LOWER(s.email))
+        WHERE LOWER(u.email) = $1 
+           OR LOWER(u.student_id) = $1 
+           OR LOWER(s.roll_number) = $1
+           OR u.id = $1
+        LIMIT 1;
+      `, [normalized]);
       if (res.rows.length > 0) return res.rows[0];
     } catch (e) {
       console.warn('Neon findUserByEmail query error, using memory fallback:', e);
     }
   }
-  const user = memoryStore.users?.find((u) => u.email.toLowerCase() === normalized);
+
+  // Memory fallback check
+  const user = memoryStore.users?.find((u) => {
+    if (u.email.toLowerCase() === normalized) return true;
+    if (u.student_id && u.student_id.toLowerCase() === normalized) return true;
+    const stu = memoryStore.students.find((s) => s.id === u.student_id || s.email.toLowerCase() === u.email.toLowerCase());
+    if (stu && stu.roll_number.toLowerCase() === normalized) return true;
+    return false;
+  });
+
   return user || null;
 }
 
@@ -1165,6 +1365,7 @@ export async function updateStudent(id: string, data: UpdateStudentInput): Promi
 
   if (data.name) student.name = data.name.trim();
   if (data.department_id) student.department_id = data.department_id;
+  if (data.class_id) student.class_id = data.class_id;
   if (data.batch_year) student.batch_year = data.batch_year;
   if (data.phone !== undefined) student.phone = data.phone;
   if (data.is_active !== undefined) student.is_active = data.is_active;
@@ -1187,9 +1388,9 @@ export async function updateStudent(id: string, data: UpdateStudentInput): Promi
     try {
       await pool.query(
         `UPDATE students 
-         SET name = $1, roll_number = $2, email = $3, department_id = $4, batch_year = $5, phone = $6, is_active = $7
-         WHERE id = $8`,
-        [student.name, student.roll_number, student.email, student.department_id, student.batch_year, student.phone || null, student.is_active !== false, id]
+         SET name = $1, roll_number = $2, email = $3, department_id = $4, batch_year = $5, phone = $6, is_active = $7, class_id = $8
+         WHERE id = $9`,
+        [student.name, student.roll_number, student.email, student.department_id, student.batch_year, student.phone || null, student.is_active !== false, student.class_id || 'class-1', id]
       );
       if (user) {
         if (data.password && data.password.trim()) {
@@ -1658,8 +1859,9 @@ export async function getAllSubjectAssignments(): Promise<SubjectAssignment[]> {
 }
 
 export async function assignFacultyToSubject(courseId: string, facultyId: string, classId: string): Promise<SubjectAssignment> {
+  const cleanFacultyId = facultyId.startsWith('user-fac-') ? facultyId.replace('user-', '') : facultyId;
   const existing = memoryStore.subjectAssignments.find(
-    (a) => a.course_id === courseId && a.faculty_id === facultyId && a.class_id === classId
+    (a) => a.course_id === courseId && a.faculty_id === cleanFacultyId && a.class_id === classId
   );
   if (existing) {
     return existing;
@@ -1668,7 +1870,7 @@ export async function assignFacultyToSubject(courseId: string, facultyId: string
   const newAssignment: SubjectAssignment = {
     id: `assign-${Date.now()}`,
     course_id: courseId,
-    faculty_id: facultyId,
+    faculty_id: cleanFacultyId,
     class_id: classId,
   };
 
@@ -1687,7 +1889,7 @@ export async function assignFacultyToSubject(courseId: string, facultyId: string
 
   memoryStore.subjectAssignments.push(newAssignment);
   // Also update faculty's assigned_course_ids and assigned_class_ids
-  const faculty = memoryStore.faculty.find((f) => f.id === facultyId);
+  const faculty = memoryStore.faculty.find((f) => f.id === cleanFacultyId);
   if (faculty) {
     if (!faculty.assigned_course_ids) faculty.assigned_course_ids = [];
     if (!faculty.assigned_class_ids) faculty.assigned_class_ids = [];
@@ -1770,6 +1972,12 @@ export async function createLecture(data: CreateLectureInput, facultyId?: string
   const qrToken = `CADENCE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
   const qrExpiresAt = new Date(now + 15 * 1000).toISOString();
 
+  // Normalize faculty ID if passed from auth user
+  let cleanFacultyId = facultyId || 'fac-1';
+  if (cleanFacultyId.startsWith('user-fac-')) {
+    cleanFacultyId = cleanFacultyId.replace('user-', '');
+  }
+
   // Calculate end_time based on start_time and duration_minutes
   let endTime = '10:00';
   try {
@@ -1786,7 +1994,7 @@ export async function createLecture(data: CreateLectureInput, facultyId?: string
     id: `sess-${now}`,
     course_id: data.course_id,
     class_id: data.class_id || 'class-1',
-    faculty_id: facultyId || 'fac-1',
+    faculty_id: cleanFacultyId,
     lecture_number: data.lecture_number,
     topic: data.topic,
     duration_minutes: data.duration_minutes,
@@ -1809,14 +2017,33 @@ export async function createLecture(data: CreateLectureInput, facultyId?: string
   const pool = getPgPool();
   if (pool) {
     try {
+      // Validate faculty_id against foreign key in PostgreSQL
+      let validFacultyId = cleanFacultyId;
+      const fCheck = await pool.query('SELECT id FROM faculty WHERE id = $1 LIMIT 1', [cleanFacultyId]);
+      if (fCheck.rows.length === 0) {
+        const anyF = await pool.query('SELECT id FROM faculty LIMIT 1');
+        validFacultyId = anyF.rows.length > 0 ? anyF.rows[0].id : 'fac-1';
+      }
+
+      // Validate class_id against foreign key in PostgreSQL
+      let validClassId = data.class_id || 'class-1';
+      const cCheck = await pool.query('SELECT id FROM classes WHERE id = $1 LIMIT 1', [validClassId]);
+      if (cCheck.rows.length === 0) {
+        const anyC = await pool.query('SELECT id FROM classes LIMIT 1');
+        validClassId = anyC.rows.length > 0 ? anyC.rows[0].id : 'class-1';
+      }
+
+      newSession.faculty_id = validFacultyId;
+      newSession.class_id = validClassId;
+
       await pool.query(
         `INSERT INTO sessions (id, course_id, class_id, faculty_id, lecture_number, topic, duration_minutes, session_date, start_time, end_time, title, session_type, qr_token, qr_expires_at, is_closed, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           newSession.id,
           newSession.course_id,
-          newSession.class_id,
-          newSession.faculty_id,
+          validClassId,
+          validFacultyId,
           newSession.lecture_number,
           newSession.topic,
           newSession.duration_minutes,

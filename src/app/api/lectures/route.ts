@@ -32,7 +32,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const facultyId = currentUser?.role === 'faculty' ? (currentUser.id || 'fac-1') : (body.faculty_id || 'fac-1');
+    let facultyId = 'fac-1';
+    if (currentUser?.role === 'faculty') {
+      const rawId = currentUser.id || '';
+      facultyId = rawId.startsWith('user-fac-') ? rawId.replace('user-', '') : rawId || 'fac-1';
+    } else if (body.faculty_id) {
+      facultyId = body.faculty_id.startsWith('user-fac-') ? body.faculty_id.replace('user-', '') : body.faculty_id;
+    }
     const lecture = await createLecture(body, facultyId);
 
     return NextResponse.json(

@@ -29,6 +29,7 @@ interface Props {
 export default function SubjectClassDesk({ departments, courses, classes: initialClasses, faculty, onDataChanged }: Props) {
   const [classList, setClassList] = useState<AcademicClass[]>(initialClasses);
   const [courseList, setCourseList] = useState<Course[]>(courses);
+  const [deptList, setDeptList] = useState<Department[]>(departments);
   const [assignments, setAssignments] = useState<SubjectAssignment[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -41,6 +42,24 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
   const [classYear, setClassYear] = useState('2026-2027');
   const [classSubmitting, setClassSubmitting] = useState(false);
 
+  // Subject Modal
+  const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
+  const [courseCode, setCourseCode] = useState('');
+  const [courseTitle, setCourseTitle] = useState('');
+  const [courseDeptId, setCourseDeptId] = useState(departments[0]?.id || 'dept-1');
+  const [courseInstructorName, setCourseInstructorName] = useState(faculty[0]?.name || 'Dr. Aris Vandenberg');
+  const [courseInstructorEmail, setCourseInstructorEmail] = useState(faculty[0]?.email || 'faculty@cadence.edu');
+  const [courseRoom, setCourseRoom] = useState('Hall A');
+  const [courseSemester, setCourseSemester] = useState('Fall 2026');
+  const [courseSubmitting, setCourseSubmitting] = useState(false);
+
+  // Department Modal
+  const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
+  const [deptCode, setDeptCode] = useState('');
+  const [deptName, setDeptName] = useState('');
+  const [deptFacultyHead, setDeptFacultyHead] = useState('');
+  const [deptSubmitting, setDeptSubmitting] = useState(false);
+
   // Assignment Modal
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assignCourseId, setAssignCourseId] = useState(courses[0]?.id || '');
@@ -51,12 +70,14 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
   const fetchAssignmentsAndClasses = useCallback(async () => {
     try {
       setLoading(true);
-      const [assignRes, classRes] = await Promise.all([
+      const [assignRes, classRes, deptRes] = await Promise.all([
         fetch('/api/subjects'),
         fetch('/api/classes'),
+        fetch('/api/departments'),
       ]);
       const assignData = await assignRes.json();
       const classData = await classRes.json();
+      const deptData = await deptRes.json();
 
       if (assignData.assignments) {
         setAssignments(assignData.assignments);
@@ -66,6 +87,9 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
       }
       if (classData.classes) {
         setClassList(classData.classes);
+      }
+      if (deptData.departments) {
+        setDeptList(deptData.departments);
       }
     } catch (e) {
       console.error(e);
@@ -77,6 +101,80 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
   useEffect(() => {
     fetchAssignmentsAndClasses();
   }, [fetchAssignmentsAndClasses]);
+
+  const handleCreateCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCourseSubmitting(true);
+    setFeedback(null);
+
+    try {
+      const res = await fetch('/api/courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: courseCode.trim().toUpperCase(),
+          title: courseTitle.trim(),
+          department_id: courseDeptId,
+          instructor_name: courseInstructorName.trim(),
+          instructor_email: courseInstructorEmail.trim().toLowerCase(),
+          room: courseRoom.trim(),
+          semester: courseSemester.trim(),
+          target_attendance_pct: 75,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create subject.');
+      }
+
+      setFeedback({ type: 'success', message: `Subject "${courseTitle}" (${courseCode.toUpperCase()}) created successfully.` });
+      setIsCourseModalOpen(false);
+      setCourseCode('');
+      setCourseTitle('');
+      await fetchAssignmentsAndClasses();
+      if (onDataChanged) onDataChanged();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    } finally {
+      setCourseSubmitting(false);
+    }
+  };
+
+  const handleCreateDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeptSubmitting(true);
+    setFeedback(null);
+
+    try {
+      const res = await fetch('/api/departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: deptCode.trim().toUpperCase(),
+          name: deptName.trim(),
+          faculty_head: deptFacultyHead.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create department.');
+      }
+
+      setFeedback({ type: 'success', message: `Department "${deptName}" (${deptCode.toUpperCase()}) created successfully.` });
+      setIsDeptModalOpen(false);
+      setDeptCode('');
+      setDeptName('');
+      setDeptFacultyHead('');
+      await fetchAssignmentsAndClasses();
+      if (onDataChanged) onDataChanged();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message });
+    } finally {
+      setDeptSubmitting(false);
+    }
+  };
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,12 +273,26 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setIsDeptModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[#e2ded7] font-semibold text-xs transition-all flex items-center gap-1.5"
+          >
+            <Building className="w-3.5 h-3.5 text-[#e4c668]" />
+            Add Department
+          </button>
+          <button
+            onClick={() => setIsCourseModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[#e2ded7] font-semibold text-xs transition-all flex items-center gap-1.5"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-[#d9ad3c]" />
+            Add Subject
+          </button>
           <button
             onClick={() => setIsClassModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-xs transition-all flex items-center gap-2"
+            className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-xs transition-all flex items-center gap-1.5"
           >
-            <FolderPlus className="w-4 h-4 text-[#2dd4bf]" />
+            <FolderPlus className="w-3.5 h-3.5 text-[#2dd4bf]" />
             Add Academic Class
           </button>
           <button
@@ -311,6 +423,48 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
               })
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Institutional Subjects Catalog Panel */}
+      <div className="bg-[#0f1115] border border-white/10 rounded-2xl p-5 space-y-4 shadow-card">
+        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-[#d9ad3c]" />
+            <h3 className="text-sm font-bold text-white">Registered Subjects &amp; Curriculum</h3>
+          </div>
+          <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-white/5 text-[#9e988f]">
+            {courseList.length} Subjects
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {courseList.map((c) => {
+            const dept = deptList.find((d) => d.id === c.department_id);
+            return (
+              <div
+                key={c.id}
+                className="p-3.5 rounded-xl bg-black/40 border border-white/5 hover:border-white/10 transition-colors space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#d9ad3c]/20 text-[#e4c668] border border-[#d9ad3c]/30">
+                    {c.code}
+                  </span>
+                  <span className="text-[10px] font-mono text-[#2dd4bf] bg-[#2dd4bf]/10 px-2 py-0.5 rounded border border-[#2dd4bf]/20">
+                    Target: {c.target_attendance_pct || 75}%
+                  </span>
+                </div>
+                <h4 className="font-semibold text-white text-xs">{c.title}</h4>
+                <div className="text-[11px] text-[#9e988f] space-y-0.5 font-mono">
+                  <div>Instructor: <span className="text-white/80">{c.instructor_name}</span></div>
+                  <div className="flex items-center justify-between text-[10px] text-[#6b6660] pt-1">
+                    <span>{dept?.name || 'Computer Science'}</span>
+                    <span>{c.room || 'Hall A'}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -487,6 +641,225 @@ export default function SubjectClassDesk({ departments, courses, classes: initia
                   className="px-5 py-2 rounded-lg bg-[#d9ad3c] hover:bg-[#e6bd4b] text-black font-semibold transition-all shadow-md"
                 >
                   {assignSubmitting ? 'Assigning...' : 'Confirm Assignment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Subject Modal */}
+      {isCourseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-[#0f1115] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-5 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#d9ad3c]/10 border border-[#d9ad3c]/30 flex items-center justify-center text-[#d9ad3c]">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Add New Subject</h3>
+                  <p className="text-xs text-[#9e988f]">Register a new course in the academic catalog</p>
+                </div>
+              </div>
+              <button onClick={() => setIsCourseModalOpen(false)} className="text-[#9e988f] hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCourse} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Subject Code *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="CS-302"
+                    value={courseCode}
+                    onChange={(e) => setCourseCode(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white font-mono placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="text-[#9e988f] block font-medium">Subject Title *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Operating Systems & Architecture"
+                    value={courseTitle}
+                    onChange={(e) => setCourseTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Department *</label>
+                  <select
+                    value={courseDeptId}
+                    onChange={(e) => setCourseDeptId(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#d9ad3c]"
+                  >
+                    {deptList.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code} — {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Lecture Room</label>
+                  <input
+                    type="text"
+                    placeholder="Hall 301 / Lab 4"
+                    value={courseRoom}
+                    onChange={(e) => setCourseRoom(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Primary Instructor Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Dr. Alan Turing"
+                    value={courseInstructorName}
+                    onChange={(e) => setCourseInstructorName(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Instructor Email *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="instructor@cadence.edu"
+                    value={courseInstructorEmail}
+                    onChange={(e) => setCourseInstructorEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white font-mono placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Semester</label>
+                  <input
+                    type="text"
+                    placeholder="Fall 2026"
+                    value={courseSemester}
+                    onChange={(e) => setCourseSemester(e.target.value)}
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#d9ad3c]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[#9e988f] block font-medium">Target Attendance %</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={100}
+                    value={75}
+                    readOnly
+                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-[#2dd4bf] font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCourseModalOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#9e988f] hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={courseSubmitting}
+                  className="px-5 py-2 rounded-lg bg-[#d9ad3c] hover:bg-[#e6bd4b] text-black font-semibold transition-all shadow-md"
+                >
+                  {courseSubmitting ? 'Registering...' : 'Register Subject'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Department Modal */}
+      {isDeptModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-[#0f1115] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-5 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[#e4c668]/10 border border-[#e4c668]/30 flex items-center justify-center text-[#e4c668]">
+                  <Building className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Add New Department</h3>
+                  <p className="text-xs text-[#9e988f]">Establish academic department &amp; leadership</p>
+                </div>
+              </div>
+              <button onClick={() => setIsDeptModalOpen(false)} className="text-[#9e988f] hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDepartment} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-[#9e988f] block font-medium">Department Code *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ME, EE, IT"
+                  value={deptCode}
+                  onChange={(e) => setDeptCode(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white font-mono placeholder-[#6b6660] focus:outline-none focus:border-[#e4c668]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[#9e988f] block font-medium">Department Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Mechanical & Aerospace Engineering"
+                  value={deptName}
+                  onChange={(e) => setDeptName(e.target.value)}
+                  className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#e4c668]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[#9e988f] block font-medium">Faculty Head / Chairperson *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Prof. Robert Sterling"
+                  value={deptFacultyHead}
+                  onChange={(e) => setDeptFacultyHead(e.target.value)}
+                  className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white placeholder-[#6b6660] focus:outline-none focus:border-[#e4c668]"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsDeptModalOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#9e988f] hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deptSubmitting}
+                  className="px-5 py-2 rounded-lg bg-[#d9ad3c] hover:bg-[#e6bd4b] text-black font-semibold transition-all shadow-md"
+                >
+                  {deptSubmitting ? 'Creating...' : 'Create Department'}
                 </button>
               </div>
             </form>

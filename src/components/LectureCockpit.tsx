@@ -33,6 +33,12 @@ interface Props {
 }
 
 export default function LectureCockpit({ currentUser, courses, classes }: Props) {
+  const facultyCourses = courses.filter((c) => {
+    if (currentUser?.role !== 'faculty') return true;
+    return c.instructor_email?.toLowerCase() === currentUser?.email?.toLowerCase();
+  });
+  const availableCourses = facultyCourses.length > 0 ? facultyCourses : courses;
+
   const [lectures, setLectures] = useState<Session[]>([]);
   const [activeLecture, setActiveLecture] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,7 +64,7 @@ export default function LectureCockpit({ currentUser, courses, classes }: Props)
 
   // New Lecture Form State
   const [isNewLectureOpen, setIsNewLectureOpen] = useState(false);
-  const [selectedCourseId, setSelectedCourseId] = useState(courses[0]?.id || '');
+  const [selectedCourseId, setSelectedCourseId] = useState(availableCourses[0]?.id || courses[0]?.id || '');
   const [selectedClassId, setSelectedClassId] = useState(classes[0]?.id || 'class-1');
   const [topic, setTopic] = useState('');
   const [lectureNumber, setLectureNumber] = useState(1);
@@ -612,7 +618,7 @@ export default function LectureCockpit({ currentUser, courses, classes }: Props)
                     onChange={(e) => setSelectedCourseId(e.target.value)}
                     className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#d9ad3c]"
                   >
-                    {courses.map((c) => (
+                    {availableCourses.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.code} - {c.title}
                       </option>

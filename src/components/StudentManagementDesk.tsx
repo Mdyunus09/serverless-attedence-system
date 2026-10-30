@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Student, Department } from '@/lib/types';
+import { Student, Department, AcademicClass } from '@/lib/types';
 import {
   Users,
   Search,
@@ -26,10 +26,11 @@ import {
 
 interface Props {
   departments: Department[];
+  classes?: AcademicClass[];
   onOpenEnrollModal: () => void;
 }
 
-export default function StudentManagementDesk({ departments, onOpenEnrollModal }: Props) {
+export default function StudentManagementDesk({ departments, classes = [], onOpenEnrollModal }: Props) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -44,6 +45,7 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
   const [editRoll, setEditRoll] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editDeptId, setEditDeptId] = useState('');
+  const [editClassId, setEditClassId] = useState('class-1');
   const [editPassword, setEditPassword] = useState('');
   const [editBatchYear, setEditBatchYear] = useState('');
 
@@ -104,6 +106,7 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
     setEditRoll(student.roll_number);
     setEditEmail(student.email);
     setEditDeptId(student.department_id);
+    setEditClassId(student.class_id || (classes[0]?.id) || 'class-1');
     setEditBatchYear(student.batch_year || '2023-2027');
     setEditPassword('');
   };
@@ -123,6 +126,7 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
           roll_number: editRoll.trim().toUpperCase(),
           email: editEmail.trim().toLowerCase(),
           department_id: editDeptId,
+          class_id: editClassId,
           batch_year: editBatchYear.trim(),
           password: editPassword.trim() || undefined,
         }),
@@ -292,6 +296,7 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
               <tr className="border-b border-white/10 bg-[#12141a] text-[#9e988f] font-mono text-[11px] uppercase tracking-wider">
                 <th className="py-3 px-4">Student &amp; Identity</th>
                 <th className="py-3 px-4">Roll Number</th>
+                <th className="py-3 px-4">Class</th>
                 <th className="py-3 px-4">Department &amp; Batch</th>
                 <th className="py-3 px-4">Attendance</th>
                 <th className="py-3 px-4">Account Status</th>
@@ -301,14 +306,14 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
             <tbody className="divide-y divide-white/5 font-sans">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-[#9e988f] font-mono">
+                  <td colSpan={7} className="py-12 text-center text-[#9e988f] font-mono">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#d9ad3c]" />
                     Loading student directory...
                   </td>
                 </tr>
               ) : filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-[#9e988f] font-mono">
+                  <td colSpan={7} className="py-12 text-center text-[#9e988f] font-mono">
                     No students matching search criteria.
                   </td>
                 </tr>
@@ -316,6 +321,7 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
                 filteredStudents.map((stu) => {
                   const isActive = stu.is_active !== false;
                   const dept = stu.department || departments.find((d) => d.id === stu.department_id);
+                  const cls = classes.find((c) => c.id === stu.class_id);
                   const compliancePct = stu.stats?.percentage ?? 85;
 
                   return (
@@ -351,6 +357,13 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
                       <td className="py-3.5 px-4 font-mono font-medium text-white">
                         <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[#d9ad3c]">
                           {stu.roll_number}
+                        </span>
+                      </td>
+
+                      {/* Class */}
+                      <td className="py-3.5 px-4 font-mono text-xs">
+                        <span className="px-2 py-0.5 rounded bg-[#2dd4bf]/10 text-[#2dd4bf] border border-[#2dd4bf]/20">
+                          {cls?.name || 'Class A'}
                         </span>
                       </td>
 
@@ -501,6 +514,24 @@ export default function StudentManagementDesk({ departments, onOpenEnrollModal }
                       {d.code} — {d.name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-[#9e988f]">Class / Academic Cohort</label>
+                <select
+                  value={editClassId}
+                  onChange={(e) => setEditClassId(e.target.value)}
+                  className="w-full bg-[#141720] border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                >
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {c.semester}
+                    </option>
+                  ))}
+                  {classes.length === 0 && (
+                    <option value="class-1">CS 3rd Year - Section A</option>
+                  )}
                 </select>
               </div>
 

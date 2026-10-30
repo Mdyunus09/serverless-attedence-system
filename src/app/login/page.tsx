@@ -129,13 +129,13 @@ function LoginContent() {
         <div className="bg-[#0f1115] border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-[#9e988f]">Institutional Email</label>
+              <label className="block text-xs font-medium text-[#9e988f]">Institutional Email or Roll Number</label>
               <div className="relative">
                 <input
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@cadence.edu"
+                  placeholder="name@cadence.edu or CS2023-001"
                   required
                   className="w-full bg-[#141720] border border-white/10 rounded-xl px-4 py-2.5 pl-10 text-xs font-mono text-white placeholder-white/20 focus:outline-none focus:border-[#d9ad3c] transition-colors"
                 />

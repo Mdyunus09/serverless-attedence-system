@@ -406,6 +406,7 @@ export default function Dashboard() {
         {activeTab === 'students' && (
           <StudentManagementDesk
             departments={DEFAULT_DEPARTMENTS}
+            classes={classes}
             onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
           />
         )}
