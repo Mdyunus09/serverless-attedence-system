@@ -11,6 +11,15 @@ import {
   DatabaseStatus,
   AttendanceStatus,
   User,
+  AcademicClass,
+  Faculty,
+  SubjectAssignment,
+  EnrollStudentInput,
+  UpdateStudentInput,
+  CreateFacultyInput,
+  UpdateFacultyInput,
+  CreateClassInput,
+  CreateLectureInput,
 } from './types';
 import {
   initialDepartments,
@@ -21,6 +30,9 @@ import {
   initialLeaveRequests,
   initialAuditLogs,
   initialUsers,
+  initialClasses,
+  initialFaculty,
+  initialSubjectAssignments,
 } from './mockData';
 
 // Global in-memory fallback store
@@ -33,6 +45,9 @@ interface MemoryStore {
   leaveRequests: LeaveRequest[];
   auditLogs: AuditLog[];
   users: User[];
+  classes: AcademicClass[];
+  faculty: Faculty[];
+  subjectAssignments: SubjectAssignment[];
 }
 
 const globalForStore = globalThis as unknown as {
@@ -50,9 +65,15 @@ if (!globalForStore.memoryStore) {
     leaveRequests: [...initialLeaveRequests],
     auditLogs: [...initialAuditLogs],
     users: [...initialUsers],
+    classes: [...initialClasses],
+    faculty: [...initialFaculty],
+    subjectAssignments: [...initialSubjectAssignments],
   };
-} else if (!globalForStore.memoryStore.users) {
-  globalForStore.memoryStore.users = [...initialUsers];
+} else {
+  if (!globalForStore.memoryStore.users) globalForStore.memoryStore.users = [...initialUsers];
+  if (!globalForStore.memoryStore.classes) globalForStore.memoryStore.classes = [...initialClasses];
+  if (!globalForStore.memoryStore.faculty) globalForStore.memoryStore.faculty = [...initialFaculty];
+  if (!globalForStore.memoryStore.subjectAssignments) globalForStore.memoryStore.subjectAssignments = [...initialSubjectAssignments];
 }
 
 const memoryStore = globalForStore.memoryStore;
@@ -181,7 +202,8 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
         avatar_url TEXT,
         department_id VARCHAR(64) REFERENCES departments(id) ON DELETE CASCADE,
         batch_year VARCHAR(32) NOT NULL,
-        phone VARCHAR(64)
+        phone VARCHAR(64),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE
       );
 
       CREATE TABLE IF NOT EXISTS sessions (
@@ -242,8 +264,51 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
         role VARCHAR(32) NOT NULL,
         student_id VARCHAR(64) REFERENCES students(id) ON DELETE SET NULL,
         department_id VARCHAR(64) REFERENCES departments(id) ON DELETE SET NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS classes (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        department_id VARCHAR(64) REFERENCES departments(id) ON DELETE CASCADE,
+        semester VARCHAR(64) NOT NULL,
+        academic_year VARCHAR(64) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS faculty (
+        id VARCHAR(64) PRIMARY KEY,
+        employee_id VARCHAR(64) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        department_id VARCHAR(64) REFERENCES departments(id) ON DELETE CASCADE,
+        designation VARCHAR(128) NOT NULL,
+        phone VARCHAR(64),
+        assigned_course_ids TEXT[] NOT NULL DEFAULT '{}',
+        assigned_class_ids TEXT[] NOT NULL DEFAULT '{}',
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS subject_assignments (
+        id VARCHAR(64) PRIMARY KEY,
+        course_id VARCHAR(64) REFERENCES courses(id) ON DELETE CASCADE,
+        faculty_id VARCHAR(64) REFERENCES faculty(id) ON DELETE CASCADE,
+        class_id VARCHAR(64) REFERENCES classes(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_course_faculty_class UNIQUE (course_id, faculty_id, class_id)
+      );
+
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS class_id VARCHAR(64);
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS lecture_number INT;
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS topic VARCHAR(255);
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS class_id VARCHAR(64);
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS faculty_id VARCHAR(64);
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS duration_minutes INT;
+      ALTER TABLE sessions ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
     `);
 
     // Check if initial departments exist, if not seed
@@ -263,14 +328,14 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       }
       for (const s of initialStudents) {
         await client.query(
-          'INSERT INTO students (id, roll_number, name, email, department_id, batch_year, phone) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-          [s.id, s.roll_number, s.name, s.email, s.department_id, s.batch_year, s.phone]
+          'INSERT INTO students (id, roll_number, name, email, department_id, batch_year, phone, class_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [s.id, s.roll_number, s.name, s.email, s.department_id, s.batch_year, s.phone, s.class_id || 'class-1']
         );
       }
       for (const sess of initialSessions) {
         await client.query(
-          'INSERT INTO sessions (id, course_id, session_date, start_time, end_time, title, session_type, qr_token, is_closed) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-          [sess.id, sess.course_id, sess.session_date, sess.start_time, sess.end_time, sess.title, sess.session_type, sess.qr_token || null, sess.is_closed]
+          'INSERT INTO sessions (id, course_id, session_date, start_time, end_time, title, session_type, qr_token, is_closed, lecture_number, topic, class_id, faculty_id, duration_minutes, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)',
+          [sess.id, sess.course_id, sess.session_date, sess.start_time, sess.end_time, sess.title, sess.session_type, sess.qr_token || null, sess.is_closed, sess.lecture_number || 1, sess.topic || sess.title, sess.class_id || 'class-1', sess.faculty_id || 'fac-1', sess.duration_minutes || 60, sess.status || 'closed']
         );
       }
       for (const att of initialAttendanceRecords) {
@@ -293,6 +358,39 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       }
     }
 
+    // Seed classes if empty
+    const classCheck = await client.query('SELECT COUNT(*) FROM classes');
+    if (parseInt(classCheck.rows[0].count, 10) === 0) {
+      for (const cls of initialClasses) {
+        await client.query(
+          'INSERT INTO classes (id, name, department_id, semester, academic_year) VALUES ($1, $2, $3, $4, $5)',
+          [cls.id, cls.name, cls.department_id, cls.semester, cls.academic_year]
+        );
+      }
+    }
+
+    // Seed faculty if empty
+    const facCheck = await client.query('SELECT COUNT(*) FROM faculty');
+    if (parseInt(facCheck.rows[0].count, 10) === 0) {
+      for (const f of initialFaculty) {
+        await client.query(
+          'INSERT INTO faculty (id, employee_id, name, email, department_id, designation, phone, assigned_course_ids, assigned_class_ids) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [f.id, f.employee_id, f.name, f.email, f.department_id, f.designation, f.phone || null, f.assigned_course_ids, f.assigned_class_ids]
+        );
+      }
+    }
+
+    // Seed subject assignments if empty
+    const assignCheck = await client.query('SELECT COUNT(*) FROM subject_assignments');
+    if (parseInt(assignCheck.rows[0].count, 10) === 0) {
+      for (const a of initialSubjectAssignments) {
+        await client.query(
+          'INSERT INTO subject_assignments (id, course_id, faculty_id, class_id) VALUES ($1, $2, $3, $4)',
+          [a.id, a.course_id, a.faculty_id, a.class_id]
+        );
+      }
+    }
+
     // Check if initial users exist, if not seed
     const userCheck = await client.query('SELECT COUNT(*) FROM users');
     if (parseInt(userCheck.rows[0].count, 10) === 0) {
@@ -308,7 +406,7 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
     return {
       success: true,
       message: 'Neon PostgreSQL tables and seed data initialized successfully.',
-      tables: ['departments', 'courses', 'students', 'sessions', 'attendance_records', 'leave_requests', 'audit_logs', 'users'],
+      tables: ['departments', 'courses', 'students', 'sessions', 'attendance_records', 'leave_requests', 'audit_logs', 'users', 'classes', 'faculty', 'subject_assignments'],
     };
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -641,6 +739,10 @@ export async function verifyQRCodeCheckIn(qrToken: string, studentRollOrEmail: s
     return { success: false, message: 'Student roll number / institutional email not recognized.' };
   }
 
+  if (student.is_active === false) {
+    return { success: false, message: 'Check-in failed: Student account has been deactivated by administration.' };
+  }
+
   const course = memoryStore.courses.find((c) => c.id === activeSession.course_id);
   await updateStudentAttendance(activeSession.id, student.id, 'present', 'Verified via QR Self Check-In');
 
@@ -899,6 +1001,10 @@ export async function verifyUserPassword(
     return { success: false, message: 'Invalid email or password.' };
   }
 
+  if (user.is_active === false) {
+    return { success: false, message: 'Your account has been deactivated. Please contact the administrator.' };
+  }
+
   const isMatch = bcrypt.compareSync(plainPassword, user.password_hash);
   if (!isMatch) {
     return { success: false, message: 'Invalid email or password.' };
@@ -919,6 +1025,1288 @@ export async function getStudentById(studentId: string): Promise<Student | null>
   }
   const student = memoryStore.students.find((s) => s.id === studentId || s.roll_number.toLowerCase() === studentId.toLowerCase());
   return student || null;
+}
+
+export async function findStudentByRollNumber(rollNumber: string): Promise<Student | null> {
+  const normalized = rollNumber.trim().toUpperCase();
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM students WHERE UPPER(roll_number) = $1 LIMIT 1', [normalized]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon query findStudentByRollNumber error:', e);
+    }
+  }
+  const student = memoryStore.students.find((s) => s.roll_number.toUpperCase() === normalized);
+  return student || null;
+}
+
+export async function findStudentByEmail(email: string): Promise<Student | null> {
+  const normalized = email.trim().toLowerCase();
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM students WHERE LOWER(email) = $1 LIMIT 1', [normalized]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon query findStudentByEmail error:', e);
+    }
+  }
+  const student = memoryStore.students.find((s) => s.email.toLowerCase() === normalized);
+  return student || null;
+}
+
+export async function enrollNewStudent(data: EnrollStudentInput): Promise<{ student: Student; user: User }> {
+  const roll = data.roll_number.trim().toUpperCase();
+  const email = data.email.trim().toLowerCase();
+  const name = data.name.trim();
+
+  // Validate duplicate roll number
+  const existingRoll = await findStudentByRollNumber(roll);
+  if (existingRoll) {
+    throw new Error(`University Roll Number '${roll}' is already assigned to ${existingRoll.name}.`);
+  }
+
+  // Validate duplicate email across students and users
+  const existingStudentEmail = await findStudentByEmail(email);
+  const existingUserEmail = await findUserByEmail(email);
+  if (existingStudentEmail || existingUserEmail) {
+    throw new Error(`Email address '${email}' is already registered in the system.`);
+  }
+
+  if (!data.password || data.password.length < 6) {
+    throw new Error('Temporary password must be at least 6 characters long.');
+  }
+
+  const studentId = `stu-${Date.now()}`;
+  const userId = `user-stu-${Date.now()}`;
+  const passwordHash = bcrypt.hashSync(data.password, 10);
+  const batchYear = data.batch_year || '2023-2027';
+
+  const newStudent: Student = {
+    id: studentId,
+    roll_number: roll,
+    name,
+    email,
+    department_id: data.department_id,
+    class_id: data.class_id || 'class-1',
+    batch_year: batchYear,
+    phone: data.phone || undefined,
+    is_active: true,
+  };
+
+  const newUser: User = {
+    id: userId,
+    email,
+    password_hash: passwordHash,
+    name,
+    role: 'student',
+    student_id: studentId,
+    department_id: data.department_id,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query('BEGIN');
+      await pool.query(
+        `INSERT INTO students (id, roll_number, name, email, department_id, batch_year, phone, class_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [newStudent.id, newStudent.roll_number, newStudent.name, newStudent.email, newStudent.department_id, newStudent.batch_year, newStudent.phone || null, newStudent.class_id, true]
+      );
+      await pool.query(
+        `INSERT INTO users (id, email, password_hash, name, role, student_id, department_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [newUser.id, newUser.email, newUser.password_hash, newUser.name, newUser.role, newUser.student_id, newUser.department_id, true]
+      );
+      await pool.query('COMMIT');
+    } catch (e: any) {
+      await pool.query('ROLLBACK');
+      console.warn('Neon transaction enrollNewStudent failed, using memory fallback:', e);
+    }
+  }
+
+  // Push to memoryStore fallback
+  memoryStore.students.push(newStudent);
+  if (!memoryStore.users) memoryStore.users = [];
+  memoryStore.users.push(newUser);
+
+  addAuditLog('Admin', 'STUDENT_ENROLLED', 'Student', newStudent.id, `Enrolled student ${name} (${roll}) with student authentication account`);
+
+  return { student: newStudent, user: newUser };
+}
+
+export async function updateStudent(id: string, data: UpdateStudentInput): Promise<{ student: Student; user?: User }> {
+  const student = memoryStore.students.find((s) => s.id === id);
+  if (!student) {
+    throw new Error(`Student with ID '${id}' not found.`);
+  }
+
+  // If roll number changing, check uniqueness
+  if (data.roll_number && data.roll_number.trim().toUpperCase() !== student.roll_number.toUpperCase()) {
+    const existing = await findStudentByRollNumber(data.roll_number);
+    if (existing && existing.id !== id) {
+      throw new Error(`Roll number '${data.roll_number}' is already used by another student.`);
+    }
+    student.roll_number = data.roll_number.trim().toUpperCase();
+  }
+
+  // If email changing, check uniqueness
+  if (data.email && data.email.trim().toLowerCase() !== student.email.toLowerCase()) {
+    const existing = await findStudentByEmail(data.email);
+    if (existing && existing.id !== id) {
+      throw new Error(`Email '${data.email}' is already used by another student.`);
+    }
+    student.email = data.email.trim().toLowerCase();
+  }
+
+  if (data.name) student.name = data.name.trim();
+  if (data.department_id) student.department_id = data.department_id;
+  if (data.batch_year) student.batch_year = data.batch_year;
+  if (data.phone !== undefined) student.phone = data.phone;
+  if (data.is_active !== undefined) student.is_active = data.is_active;
+
+  // Find matching user
+  let user = memoryStore.users?.find((u) => u.student_id === id || u.email.toLowerCase() === student.email.toLowerCase());
+  if (user) {
+    if (data.name) user.name = student.name;
+    if (data.email) user.email = student.email;
+    if (data.department_id) user.department_id = student.department_id;
+    if (data.is_active !== undefined) user.is_active = data.is_active;
+    if (data.password && data.password.trim()) {
+      user.password_hash = bcrypt.hashSync(data.password.trim(), 10);
+    }
+  }
+
+  // Neon update
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `UPDATE students 
+         SET name = $1, roll_number = $2, email = $3, department_id = $4, batch_year = $5, phone = $6, is_active = $7
+         WHERE id = $8`,
+        [student.name, student.roll_number, student.email, student.department_id, student.batch_year, student.phone || null, student.is_active !== false, id]
+      );
+      if (user) {
+        if (data.password && data.password.trim()) {
+          await pool.query(
+            `UPDATE users SET name = $1, email = $2, department_id = $3, is_active = $4, password_hash = $5 WHERE id = $6`,
+            [user.name, user.email, user.department_id, user.is_active !== false, user.password_hash, user.id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE users SET name = $1, email = $2, department_id = $3, is_active = $4 WHERE id = $5`,
+            [user.name, user.email, user.department_id, user.is_active !== false, user.id]
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('Neon student update error:', e);
+    }
+  }
+
+  addAuditLog('Admin', 'STUDENT_UPDATED', 'Student', id, `Updated student record for ${student.name} (${student.roll_number})`);
+  return { student, user };
+}
+
+export async function toggleStudentStatus(id: string, is_active: boolean): Promise<{ success: boolean; student: Student }> {
+  const result = await updateStudent(id, { is_active });
+  addAuditLog(
+    'Admin',
+    is_active ? 'STUDENT_ACTIVATED' : 'STUDENT_DEACTIVATED',
+    'Student',
+    id,
+    `Account status changed to ${is_active ? 'Active' : 'Deactivated'}`
+  );
+  return { success: true, student: result.student };
+}
+
+export async function getAllStudentsWithDetails(courseId?: string): Promise<Student[]> {
+  const studentsWithStats = await getStudentsWithStats(courseId);
+  return studentsWithStats.map((s) => {
+    const dept = memoryStore.departments.find((d) => d.id === s.department_id);
+    const cls = memoryStore.classes.find((c) => c.id === s.class_id);
+    const user = memoryStore.users?.find((u) => u.student_id === s.id || u.email.toLowerCase() === s.email.toLowerCase());
+    return {
+      ...s,
+      is_active: s.is_active !== false,
+      department: dept,
+      class: cls,
+      user_account: user ? { id: user.id, is_active: user.is_active !== false } : undefined,
+    };
+  });
+}
+
+export async function getStudentPersonalAttendance(studentIdOrEmail: string): Promise<any> {
+  const normalized = studentIdOrEmail.trim().toLowerCase();
+  const student = memoryStore.students.find(
+    (s) => s.id.toLowerCase() === normalized ||
+           s.roll_number.toLowerCase() === normalized ||
+           s.email.toLowerCase() === normalized
+  );
+
+  if (!student) {
+    return null;
+  }
+
+  // Get department
+  const dept = memoryStore.departments.find((d) => d.id === student.department_id);
+
+  // Calculate course-by-course and overall stats
+  const coursesData = memoryStore.courses.map((course) => {
+    const courseSessions = memoryStore.sessions.filter((sess) => sess.course_id === course.id);
+    const totalSessions = courseSessions.length;
+    let present = 0;
+    let absent = 0;
+    let late = 0;
+    let excused = 0;
+
+    const sessionRecords = courseSessions.map((sess) => {
+      const rec = memoryStore.attendanceRecords.find((r) => r.session_id === sess.id && r.student_id === student.id);
+      const status: AttendanceStatus = rec ? rec.status : 'absent';
+      if (status === 'present') present++;
+      else if (status === 'late') late++;
+      else if (status === 'excused') excused++;
+      else absent++;
+
+      return {
+        session_id: sess.id,
+        session_title: sess.title,
+        session_date: sess.session_date,
+        start_time: sess.start_time,
+        end_time: sess.end_time,
+        session_type: sess.session_type,
+        status,
+        check_in_time: rec?.check_in_time,
+        remarks: rec?.remarks,
+      };
+    });
+
+    const percentage = totalSessions > 0 ? Math.round(((present + late * 0.5 + excused) / totalSessions) * 100) : 100;
+    const targetPct = course.target_attendance_pct || 75;
+    const isEligible = percentage >= targetPct;
+
+    // Consecutive classes needed to reach 75%:
+    // (effectivePresent + N) / (total + N) >= 0.75  =>  N >= (0.75 * total - effectivePresent) / 0.25
+    const effectivePresent = present + late * 0.5 + excused;
+    const classesNeededFor75 = isEligible ? 0 : Math.max(1, Math.ceil((0.75 * totalSessions - effectivePresent) / 0.25));
+
+    return {
+      course: {
+        id: course.id,
+        code: course.code,
+        title: course.title,
+        instructor_name: course.instructor_name,
+        target_attendance_pct: targetPct,
+      },
+      stats: {
+        totalSessions,
+        present,
+        absent,
+        late,
+        excused,
+        percentage,
+        isEligible,
+        classesNeededFor75,
+      },
+      records: sessionRecords,
+    };
+  });
+
+  return {
+    student: {
+      id: student.id,
+      roll_number: student.roll_number,
+      name: student.name,
+      email: student.email,
+      department_id: student.department_id,
+      department: dept,
+      batch_year: student.batch_year,
+      phone: student.phone,
+      is_active: student.is_active !== false,
+    },
+    courses: coursesData,
+  };
+}
+
+// -------------------------------------------------------------
+// FACULTY MANAGEMENT
+// -------------------------------------------------------------
+export async function getAllFaculty(): Promise<Faculty[]> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query(`
+        SELECT f.*, d.name as department_name, d.code as department_code
+        FROM faculty f
+        LEFT JOIN departments d ON f.department_id = d.id
+        ORDER BY f.name ASC;
+      `);
+      if (res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          ...r,
+          is_active: r.is_active !== false,
+          department: r.department_name ? { id: r.department_id, name: r.department_name, code: r.department_code, faculty_head: '' } : undefined,
+        }));
+      }
+    } catch (e) {
+      console.warn('Neon getAllFaculty query error:', e);
+    }
+  }
+
+  return memoryStore.faculty.map((f) => ({
+    ...f,
+    department: memoryStore.departments.find((d) => d.id === f.department_id),
+  }));
+}
+
+export async function getFacultyById(id: string): Promise<Faculty | null> {
+  const all = await getAllFaculty();
+  return all.find((f) => f.id === id || f.employee_id.toLowerCase() === id.toLowerCase()) || null;
+}
+
+export async function findFacultyByEmail(email: string): Promise<Faculty | null> {
+  const norm = email.trim().toLowerCase();
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM faculty WHERE LOWER(email) = $1 LIMIT 1', [norm]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon findFacultyByEmail error:', e);
+    }
+  }
+  return memoryStore.faculty.find((f) => f.email.toLowerCase() === norm) || null;
+}
+
+export async function findFacultyByEmployeeId(empId: string): Promise<Faculty | null> {
+  const norm = empId.trim().toUpperCase();
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM faculty WHERE UPPER(employee_id) = $1 LIMIT 1', [norm]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon findFacultyByEmployeeId error:', e);
+    }
+  }
+  return memoryStore.faculty.find((f) => f.employee_id.toUpperCase() === norm) || null;
+}
+
+export async function createFaculty(data: CreateFacultyInput): Promise<{ faculty: Faculty; user: User }> {
+  const empId = data.employee_id.trim().toUpperCase();
+  const email = data.email.trim().toLowerCase();
+  const name = data.name.trim();
+
+  // Validate duplicate employee ID
+  const existingEmp = await findFacultyByEmployeeId(empId);
+  if (existingEmp) {
+    throw new Error(`Employee ID '${empId}' is already assigned to ${existingEmp.name}.`);
+  }
+
+  // Validate duplicate email
+  const existingEmail = await findFacultyByEmail(email);
+  const existingUser = await findUserByEmail(email);
+  if (existingEmail || existingUser) {
+    throw new Error(`Email address '${email}' is already registered.`);
+  }
+
+  if (!data.password || data.password.length < 6) {
+    throw new Error('Initial password must be at least 6 characters long.');
+  }
+
+  const facultyId = `fac-${Date.now()}`;
+  const userId = `user-fac-${Date.now()}`;
+  const passwordHash = bcrypt.hashSync(data.password, 10);
+
+  const newFaculty: Faculty = {
+    id: facultyId,
+    employee_id: empId,
+    name,
+    email,
+    department_id: data.department_id,
+    designation: data.designation || 'Assistant Professor',
+    phone: data.phone || undefined,
+    assigned_course_ids: data.assigned_course_ids || [],
+    assigned_class_ids: data.assigned_class_ids || [],
+    is_active: true,
+  };
+
+  const newUser: User = {
+    id: userId,
+    email,
+    password_hash: passwordHash,
+    name,
+    role: 'faculty',
+    department_id: data.department_id,
+    is_active: true,
+    created_at: new Date().toISOString(),
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query('BEGIN');
+      await pool.query(
+        `INSERT INTO faculty (id, employee_id, name, email, department_id, designation, phone, assigned_course_ids, assigned_class_ids, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [newFaculty.id, newFaculty.employee_id, newFaculty.name, newFaculty.email, newFaculty.department_id, newFaculty.designation, newFaculty.phone || null, newFaculty.assigned_course_ids, newFaculty.assigned_class_ids, true]
+      );
+      await pool.query(
+        `INSERT INTO users (id, email, password_hash, name, role, department_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newUser.id, newUser.email, newUser.password_hash, newUser.name, newUser.role, newUser.department_id, true]
+      );
+      await pool.query('COMMIT');
+    } catch (e: any) {
+      await pool.query('ROLLBACK');
+      console.warn('Neon createFaculty failed:', e);
+    }
+  }
+
+  memoryStore.faculty.push(newFaculty);
+  if (!memoryStore.users) memoryStore.users = [];
+  memoryStore.users.push(newUser);
+
+  addAuditLog('Admin', 'FACULTY_CREATED', 'Faculty', newFaculty.id, `Created faculty account for ${name} (${empId})`);
+  return { faculty: newFaculty, user: newUser };
+}
+
+export async function updateFaculty(id: string, data: UpdateFacultyInput): Promise<{ faculty: Faculty; user?: User }> {
+  const fac = memoryStore.faculty.find((f) => f.id === id);
+  if (!fac) {
+    throw new Error(`Faculty with ID '${id}' not found.`);
+  }
+
+  if (data.employee_id && data.employee_id.trim().toUpperCase() !== fac.employee_id.toUpperCase()) {
+    const existing = await findFacultyByEmployeeId(data.employee_id);
+    if (existing && existing.id !== id) {
+      throw new Error(`Employee ID '${data.employee_id}' is already registered.`);
+    }
+    fac.employee_id = data.employee_id.trim().toUpperCase();
+  }
+
+  if (data.email && data.email.trim().toLowerCase() !== fac.email.toLowerCase()) {
+    const existing = await findFacultyByEmail(data.email);
+    if (existing && existing.id !== id) {
+      throw new Error(`Email '${data.email}' is already in use.`);
+    }
+    fac.email = data.email.trim().toLowerCase();
+  }
+
+  if (data.name) fac.name = data.name.trim();
+  if (data.department_id) fac.department_id = data.department_id;
+  if (data.designation) fac.designation = data.designation;
+  if (data.phone !== undefined) fac.phone = data.phone;
+  if (data.is_active !== undefined) fac.is_active = data.is_active;
+  if (data.assigned_course_ids) fac.assigned_course_ids = data.assigned_course_ids;
+  if (data.assigned_class_ids) fac.assigned_class_ids = data.assigned_class_ids;
+
+  let user = memoryStore.users?.find((u) => u.email.toLowerCase() === fac.email.toLowerCase());
+  if (user) {
+    if (data.name) user.name = fac.name;
+    if (data.email) user.email = fac.email;
+    if (data.department_id) user.department_id = fac.department_id;
+    if (data.is_active !== undefined) user.is_active = data.is_active;
+    if (data.password && data.password.trim()) {
+      user.password_hash = bcrypt.hashSync(data.password.trim(), 10);
+    }
+  }
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `UPDATE faculty 
+         SET name = $1, employee_id = $2, email = $3, department_id = $4, designation = $5, phone = $6, is_active = $7, assigned_course_ids = $8, assigned_class_ids = $9
+         WHERE id = $10`,
+        [fac.name, fac.employee_id, fac.email, fac.department_id, fac.designation, fac.phone || null, fac.is_active !== false, fac.assigned_course_ids, fac.assigned_class_ids, id]
+      );
+      if (user) {
+        await pool.query(
+          `UPDATE users SET name = $1, email = $2, department_id = $3, is_active = $4 WHERE id = $5`,
+          [user.name, user.email, user.department_id, user.is_active !== false, user.id]
+        );
+      }
+    } catch (e) {
+      console.warn('Neon update faculty error:', e);
+    }
+  }
+
+  addAuditLog('Admin', 'FACULTY_UPDATED', 'Faculty', id, `Updated faculty information for ${fac.name}`);
+  return { faculty: fac, user };
+}
+
+export async function toggleFacultyStatus(id: string, is_active: boolean): Promise<{ success: boolean; faculty: Faculty }> {
+  const result = await updateFaculty(id, { is_active });
+  addAuditLog('Admin', is_active ? 'FACULTY_ACTIVATED' : 'FACULTY_DEACTIVATED', 'Faculty', id, `Faculty status changed to ${is_active ? 'Active' : 'Deactivated'}`);
+  return { success: true, faculty: result.faculty };
+}
+
+// -------------------------------------------------------------
+// CLASS MANAGEMENT
+// -------------------------------------------------------------
+export async function getAllClasses(): Promise<AcademicClass[]> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query(`
+        SELECT c.*, d.name as department_name, d.code as department_code,
+          (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) as student_count
+        FROM classes c
+        LEFT JOIN departments d ON c.department_id = d.id
+        ORDER BY c.name ASC;
+      `);
+      if (res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          ...r,
+          student_count: parseInt(r.student_count || '0', 10),
+          department: r.department_name ? { id: r.department_id, name: r.department_name, code: r.department_code, faculty_head: '' } : undefined,
+        }));
+      }
+    } catch (e) {
+      console.warn('Neon getAllClasses error:', e);
+    }
+  }
+
+  return memoryStore.classes.map((cls) => {
+    const studentCount = memoryStore.students.filter((s) => s.class_id === cls.id).length;
+    return {
+      ...cls,
+      student_count: studentCount,
+      department: memoryStore.departments.find((d) => d.id === cls.department_id),
+    };
+  });
+}
+
+export async function getClassById(id: string): Promise<AcademicClass | null> {
+  const classes = await getAllClasses();
+  return classes.find((c) => c.id === id) || null;
+}
+
+export async function createClass(data: CreateClassInput): Promise<AcademicClass> {
+  const newClass: AcademicClass = {
+    id: `class-${Date.now()}`,
+    name: data.name.trim(),
+    department_id: data.department_id,
+    semester: data.semester.trim(),
+    academic_year: data.academic_year.trim(),
+    student_count: 0,
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO classes (id, name, department_id, semester, academic_year) VALUES ($1, $2, $3, $4, $5)`,
+        [newClass.id, newClass.name, newClass.department_id, newClass.semester, newClass.academic_year]
+      );
+    } catch (e) {
+      console.warn('Neon createClass error:', e);
+    }
+  }
+
+  memoryStore.classes.push(newClass);
+  addAuditLog('Admin', 'CLASS_CREATED', 'Class', newClass.id, `Created academic class ${newClass.name}`);
+  return newClass;
+}
+
+// -------------------------------------------------------------
+// SUBJECT (COURSE) ASSIGNMENTS
+// -------------------------------------------------------------
+export async function getAllSubjectAssignments(): Promise<SubjectAssignment[]> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query(`
+        SELECT sa.*, 
+               c.code as course_code, c.title as course_title,
+               f.name as faculty_name, f.employee_id as faculty_employee_id,
+               cls.name as class_name
+        FROM subject_assignments sa
+        JOIN courses c ON sa.course_id = c.id
+        JOIN faculty f ON sa.faculty_id = f.id
+        JOIN classes cls ON sa.class_id = cls.id
+        ORDER BY c.code ASC;
+      `);
+      if (res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          id: r.id,
+          course_id: r.course_id,
+          faculty_id: r.faculty_id,
+          class_id: r.class_id,
+          course: { id: r.course_id, code: r.course_code, title: r.course_title, department_id: '', instructor_name: '', instructor_email: '', room: '', schedule_days: [], schedule_time: '', semester: '', target_attendance_pct: 75 },
+          faculty: { id: r.faculty_id, name: r.faculty_name, employee_id: r.faculty_employee_id, email: '', department_id: '', designation: '', assigned_course_ids: [], assigned_class_ids: [], is_active: true },
+          class: { id: r.class_id, name: r.class_name, department_id: '', semester: '', academic_year: '' },
+        }));
+      }
+    } catch (e) {
+      console.warn('Neon getAllSubjectAssignments error:', e);
+    }
+  }
+
+  return memoryStore.subjectAssignments.map((a) => ({
+    ...a,
+    course: memoryStore.courses.find((c) => c.id === a.course_id),
+    faculty: memoryStore.faculty.find((f) => f.id === a.faculty_id),
+    class: memoryStore.classes.find((cls) => cls.id === a.class_id),
+  }));
+}
+
+export async function assignFacultyToSubject(courseId: string, facultyId: string, classId: string): Promise<SubjectAssignment> {
+  const existing = memoryStore.subjectAssignments.find(
+    (a) => a.course_id === courseId && a.faculty_id === facultyId && a.class_id === classId
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const newAssignment: SubjectAssignment = {
+    id: `assign-${Date.now()}`,
+    course_id: courseId,
+    faculty_id: facultyId,
+    class_id: classId,
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO subject_assignments (id, course_id, faculty_id, class_id) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (course_id, faculty_id, class_id) DO NOTHING`,
+        [newAssignment.id, newAssignment.course_id, newAssignment.faculty_id, newAssignment.class_id]
+      );
+    } catch (e) {
+      console.warn('Neon assignFacultyToSubject error:', e);
+    }
+  }
+
+  memoryStore.subjectAssignments.push(newAssignment);
+  // Also update faculty's assigned_course_ids and assigned_class_ids
+  const faculty = memoryStore.faculty.find((f) => f.id === facultyId);
+  if (faculty) {
+    if (!faculty.assigned_course_ids) faculty.assigned_course_ids = [];
+    if (!faculty.assigned_class_ids) faculty.assigned_class_ids = [];
+    if (!faculty.assigned_course_ids.includes(courseId)) faculty.assigned_course_ids.push(courseId);
+    if (!faculty.assigned_class_ids.includes(classId)) faculty.assigned_class_ids.push(classId);
+  }
+
+  addAuditLog('Admin', 'SUBJECT_ASSIGNED', 'SubjectAssignment', newAssignment.id, `Assigned course ${courseId} to faculty ${facultyId} for class ${classId}`);
+  return newAssignment;
+}
+
+export async function removeSubjectAssignment(id: string): Promise<boolean> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query('DELETE FROM subject_assignments WHERE id = $1', [id]);
+    } catch (e) {
+      console.warn('Neon removeSubjectAssignment error:', e);
+    }
+  }
+  const idx = memoryStore.subjectAssignments.findIndex((a) => a.id === id);
+  if (idx !== -1) {
+    memoryStore.subjectAssignments.splice(idx, 1);
+  }
+  return true;
+}
+
+// -------------------------------------------------------------
+// LECTURE MANAGEMENT & ATTENDANCE LIFECYCLE (REQUIREMENTS 6, 7 & 8)
+// -------------------------------------------------------------
+export async function getFacultyLectures(facultyId?: string, courseId?: string): Promise<Session[]> {
+  let sessions = [...memoryStore.sessions];
+  if (courseId) {
+    sessions = sessions.filter((s) => s.course_id === courseId);
+  }
+  if (facultyId) {
+    sessions = sessions.filter((s) => s.faculty_id === facultyId || !s.faculty_id);
+  }
+
+  // Sort by date DESC and start_time DESC
+  sessions.sort((a, b) => {
+    const da = `${a.session_date} ${a.start_time}`;
+    const db = `${b.session_date} ${b.start_time}`;
+    return db.localeCompare(da);
+  });
+
+  return sessions.map((s) => {
+    const records = memoryStore.attendanceRecords.filter((r) => r.session_id === s.id);
+    const present = records.filter((r) => r.status === 'present').length;
+    const late = records.filter((r) => r.status === 'late').length;
+    const excused = records.filter((r) => r.status === 'excused').length;
+    const absent = records.filter((r) => r.status === 'absent').length;
+
+    // Determine pending
+    const enrolledStudents = s.class_id
+      ? memoryStore.students.filter((stu) => stu.class_id === s.class_id)
+      : memoryStore.students;
+    
+    // If lecture is still active, any enrolled student without a record is pending
+    const totalPending = !s.is_closed ? Math.max(0, enrolledStudents.length - records.length) : 0;
+
+    return {
+      ...s,
+      total_present: present,
+      total_late: late,
+      total_excused: excused,
+      total_absent: absent,
+      total_pending: totalPending,
+      course: memoryStore.courses.find((c) => c.id === s.course_id),
+      class: memoryStore.classes.find((cls) => cls.id === s.class_id),
+      faculty: memoryStore.faculty.find((f) => f.id === s.faculty_id),
+    };
+  });
+}
+
+export async function createLecture(data: CreateLectureInput, facultyId?: string): Promise<Session> {
+  const course = memoryStore.courses.find((c) => c.id === data.course_id);
+  const now = Date.now();
+  // Generate initial 15-second dynamic QR token
+  const qrToken = `CADENCE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  const qrExpiresAt = new Date(now + 15 * 1000).toISOString();
+
+  // Calculate end_time based on start_time and duration_minutes
+  let endTime = '10:00';
+  try {
+    const [hStr, mStr] = data.start_time.split(':');
+    const totalMins = parseInt(hStr, 10) * 60 + parseInt(mStr, 10) + data.duration_minutes;
+    const endH = Math.floor(totalMins / 60) % 24;
+    const endM = totalMins % 60;
+    endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  } catch (e) {
+    endTime = '10:00';
+  }
+
+  const newSession: Session = {
+    id: `sess-${now}`,
+    course_id: data.course_id,
+    class_id: data.class_id || 'class-1',
+    faculty_id: facultyId || 'fac-1',
+    lecture_number: data.lecture_number,
+    topic: data.topic,
+    duration_minutes: data.duration_minutes,
+    session_date: data.session_date,
+    start_time: data.start_time,
+    end_time: endTime,
+    title: `${course?.code || 'CS'} - Lecture #${data.lecture_number}: ${data.topic}`,
+    session_type: data.session_type || 'lecture',
+    qr_token: qrToken,
+    qr_expires_at: qrExpiresAt,
+    is_closed: false,
+    status: 'active',
+    total_present: 0,
+    total_absent: 0,
+    total_late: 0,
+    total_excused: 0,
+    total_pending: 0,
+  };
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO sessions (id, course_id, class_id, faculty_id, lecture_number, topic, duration_minutes, session_date, start_time, end_time, title, session_type, qr_token, qr_expires_at, is_closed, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          newSession.id,
+          newSession.course_id,
+          newSession.class_id,
+          newSession.faculty_id,
+          newSession.lecture_number,
+          newSession.topic,
+          newSession.duration_minutes,
+          newSession.session_date,
+          newSession.start_time,
+          newSession.end_time,
+          newSession.title,
+          newSession.session_type,
+          newSession.qr_token,
+          newSession.qr_expires_at,
+          false,
+          'active',
+        ]
+      );
+    } catch (e) {
+      console.warn('Neon createLecture error:', e);
+    }
+  }
+
+  // NOTE (Requirement 8): Do NOT mark students absent at lecture launch!
+  // While active, unverified students are pending.
+  memoryStore.sessions.unshift(newSession);
+
+  // Increment course total_sessions
+  if (course) {
+    course.total_sessions = (course.total_sessions || 0) + 1;
+  }
+
+  addAuditLog(facultyId || 'Faculty', 'LECTURE_STARTED', 'Session', newSession.id, `Started Lecture #${data.lecture_number}: "${data.topic}" for class ${newSession.class_id}`);
+  return newSession;
+}
+
+export async function refreshSessionQR(sessionId: string): Promise<{ qr_token: string; qr_expires_at: string }> {
+  const session = memoryStore.sessions.find((s) => s.id === sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  if (session.is_closed || session.status === 'closed') {
+    throw new Error('Cannot rotate QR token for a closed lecture.');
+  }
+
+  const newToken = `CADENCE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  const newExpiry = new Date(Date.now() + 15 * 1000).toISOString();
+
+  session.qr_token = newToken;
+  session.qr_expires_at = newExpiry;
+
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      await pool.query('UPDATE sessions SET qr_token = $1, qr_expires_at = $2 WHERE id = $3', [newToken, newExpiry, sessionId]);
+    } catch (e) {
+      console.warn('Neon refreshSessionQR error:', e);
+    }
+  }
+
+  return { qr_token: newToken, qr_expires_at: newExpiry };
+}
+
+export async function closeLecture(sessionId: string, actorName: string = 'Faculty'): Promise<{ success: boolean; session: Session; absentCount: number }> {
+  const session = memoryStore.sessions.find((s) => s.id === sessionId);
+  if (!session) {
+    throw new Error('Session not found.');
+  }
+
+  session.is_closed = true;
+  session.status = 'closed';
+  session.qr_token = undefined;
+
+  // REQUIREMENT 8: Automatically transition unrecorded students to 'Absent'
+  // Find all enrolled students for this session's class (or all students if none set)
+  const enrolled = session.class_id
+    ? memoryStore.students.filter((s) => (s.class_id || 'class-1') === session.class_id && s.is_active !== false)
+    : memoryStore.students.filter((s) => s.is_active !== false);
+
+  let autoAbsentCount = 0;
+  const pool = getPgPool();
+
+  for (const stu of enrolled) {
+    const existing = memoryStore.attendanceRecords.find((r) => r.session_id === sessionId && r.student_id === stu.id);
+    if (!existing) {
+      // Mark absent automatically
+      const absentRec: AttendanceRecord = {
+        id: `att-${sessionId}-${stu.id}`,
+        session_id: sessionId,
+        student_id: stu.id,
+        status: 'absent',
+        remarks: 'Auto-marked absent on lecture conclusion',
+        updated_by: 'System (Lecture Close)',
+        updated_at: new Date().toISOString(),
+      };
+      memoryStore.attendanceRecords.push(absentRec);
+      autoAbsentCount++;
+
+      if (pool) {
+        try {
+          await pool.query(
+            `INSERT INTO attendance_records (id, session_id, student_id, status, remarks, updated_by, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             ON CONFLICT (session_id, student_id) DO NOTHING`,
+            [absentRec.id, absentRec.session_id, absentRec.student_id, absentRec.status, absentRec.remarks, absentRec.updated_by]
+          );
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }
+  }
+
+  if (pool) {
+    try {
+      await pool.query('UPDATE sessions SET is_closed = TRUE, status = $1, qr_token = NULL WHERE id = $2', ['closed', sessionId]);
+    } catch (e) {
+      console.warn('Neon closeLecture error:', e);
+    }
+  }
+
+  addAuditLog(actorName, 'LECTURE_CLOSED', 'Session', sessionId, `Lecture closed. Converted ${autoAbsentCount} pending students to Absent.`);
+  return { success: true, session, absentCount: autoAbsentCount };
+}
+
+export async function getLectureRoster(sessionId: string): Promise<{
+  session: Session;
+  students: Array<{
+    student: Student;
+    status: AttendanceStatus | 'pending';
+    check_in_time?: string;
+    remarks?: string;
+    updated_by?: string;
+  }>;
+  stats: {
+    totalEnrolled: number;
+    present: number;
+    pending: number;
+    absent: number;
+    late: number;
+    excused: number;
+    attendancePct: number;
+  };
+}> {
+  const session = memoryStore.sessions.find((s) => s.id === sessionId);
+  if (!session) {
+    throw new Error('Lecture session not found.');
+  }
+
+  // Get enrolled students for class
+  const enrolled = session.class_id
+    ? memoryStore.students.filter((s) => (s.class_id || 'class-1') === session.class_id)
+    : memoryStore.students;
+
+  let present = 0;
+  let pending = 0;
+  let absent = 0;
+  let late = 0;
+  let excused = 0;
+
+  const rosterList = enrolled.map((stu) => {
+    const rec = memoryStore.attendanceRecords.find((r) => r.session_id === sessionId && r.student_id === stu.id);
+    let st: AttendanceStatus | 'pending' = 'pending';
+
+    if (rec) {
+      st = rec.status;
+      if (st === 'present') present++;
+      else if (st === 'late') late++;
+      else if (st === 'excused') excused++;
+      else if (st === 'absent') absent++;
+    } else {
+      if (session.is_closed || session.status === 'closed') {
+        st = 'absent';
+        absent++;
+      } else {
+        st = 'pending';
+        pending++;
+      }
+    }
+
+    return {
+      student: stu,
+      status: st,
+      check_in_time: rec?.check_in_time,
+      remarks: rec?.remarks,
+      updated_by: rec?.updated_by,
+    };
+  });
+
+  const total = enrolled.length || 1;
+  const attendancePct = Math.round(((present + late * 0.75 + excused) / total) * 100);
+
+  return {
+    session: {
+      ...session,
+      course: memoryStore.courses.find((c) => c.id === session.course_id),
+      class: memoryStore.classes.find((c) => c.id === session.class_id),
+    },
+    students: rosterList,
+    stats: {
+      totalEnrolled: enrolled.length,
+      present,
+      pending,
+      absent,
+      late,
+      excused,
+      attendancePct,
+    },
+  };
+}
+
+export async function correctLectureAttendance(
+  sessionId: string,
+  studentId: string,
+  newStatus: AttendanceStatus,
+  reason: string,
+  facultyName: string
+): Promise<AttendanceRecord> {
+  if (!reason || !reason.trim()) {
+    throw new Error('Mandatory correction reason is required for manual attendance override.');
+  }
+
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const pool = getPgPool();
+
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO attendance_records (id, session_id, student_id, status, check_in_time, remarks, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (session_id, student_id)
+         DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [`att-${sessionId}-${studentId}`, sessionId, studentId, newStatus, timeStr, `Manual correction: ${reason.trim()}`, facultyName]
+      );
+    } catch (e) {
+      console.warn('Neon manual correction error:', e);
+    }
+  }
+
+  let rec = memoryStore.attendanceRecords.find((r) => r.session_id === sessionId && r.student_id === studentId);
+  if (!rec) {
+    rec = {
+      id: `att-${sessionId}-${studentId}`,
+      session_id: sessionId,
+      student_id: studentId,
+      status: newStatus,
+      check_in_time: timeStr,
+      remarks: `Manual correction: ${reason.trim()}`,
+      updated_by: facultyName,
+      updated_at: new Date().toISOString(),
+    };
+    memoryStore.attendanceRecords.push(rec);
+  } else {
+    rec.status = newStatus;
+    rec.remarks = `Manual correction: ${reason.trim()}`;
+    rec.updated_by = facultyName;
+    rec.updated_at = new Date().toISOString();
+  }
+
+  const stu = memoryStore.students.find((s) => s.id === studentId);
+  addAuditLog(facultyName, 'MANUAL_ATTENDANCE_OVERRIDE', 'AttendanceRecord', rec.id, `Corrected ${stu?.name || studentId} to ${newStatus.toUpperCase()}. Reason: "${reason.trim()}"`);
+  return rec;
+}
+
+// -------------------------------------------------------------
+// SECURE ZERO-TRUST QR CODE VERIFICATION (REQUIREMENT 7 & 8)
+// -------------------------------------------------------------
+export async function verifyStudentLectureScan(
+  qrToken: string,
+  user: { id: string; student_id?: string; email: string; name: string }
+): Promise<{ success: boolean; message: string; lecture?: any; timestamp?: string }> {
+  const normToken = qrToken.trim();
+
+  // 1. Locate active session
+  const session = memoryStore.sessions.find(
+    (s) => s.qr_token === normToken && !s.is_closed && s.status !== 'closed'
+  );
+
+  if (!session) {
+    return { success: false, message: 'Invalid, inactive, or closed lecture QR code.' };
+  }
+
+  // 2. Expiration check (15s rotation window with 5s network grace tolerance)
+  if (session.qr_expires_at) {
+    const expiresMs = new Date(session.qr_expires_at).getTime();
+    if (Date.now() > expiresMs + 5000) {
+      return { success: false, message: 'QR Code has expired (15-second rotation). Please scan the current code.' };
+    }
+  }
+
+  // 3. Match student
+  const dbUser = memoryStore.users?.find(
+    (u) => u.email.toLowerCase() === user.email.toLowerCase() || u.id === user.id
+  );
+  const student = memoryStore.students.find(
+    (s) =>
+      s.id === user.student_id ||
+      s.id === dbUser?.student_id ||
+      (user.student_id && s.roll_number.toLowerCase() === user.student_id.toLowerCase()) ||
+      s.email.toLowerCase() === user.email.toLowerCase()
+  );
+
+  if (!student) {
+    return { success: false, message: 'Authenticated user is not linked to a student institutional profile.' };
+  }
+
+  if (student.is_active === false) {
+    return { success: false, message: 'Your student account has been deactivated by administration.' };
+  }
+
+  // 4. Enrollment check
+  if (session.class_id && student.class_id && session.class_id !== student.class_id) {
+    const cls = memoryStore.classes.find((c) => c.id === session.class_id);
+    return { success: false, message: `This lecture is reserved for class: ${cls?.name || session.class_id}. You are not enrolled.` };
+  }
+
+  // 5. Duplicate check
+  const existingRecord = memoryStore.attendanceRecords.find(
+    (r) => r.session_id === session.id && r.student_id === student.id
+  );
+
+  if (existingRecord && existingRecord.status === 'present') {
+    return { success: false, message: 'Duplicate scan rejected: Your attendance is already recorded as Present.' };
+  }
+
+  // 6. Record attendance
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const pool = getPgPool();
+
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO attendance_records (id, session_id, student_id, status, check_in_time, remarks, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (session_id, student_id)
+         DO UPDATE SET status = EXCLUDED.status, check_in_time = EXCLUDED.check_in_time, remarks = EXCLUDED.remarks, updated_at = NOW()`,
+        [`att-${session.id}-${student.id}`, session.id, student.id, 'present', timeStr, 'Verified via 15s Dynamic QR Token', student.name]
+      );
+    } catch (e) {
+      console.warn('Neon QR scan insert error:', e);
+    }
+  }
+
+  if (!existingRecord) {
+    memoryStore.attendanceRecords.push({
+      id: `att-${session.id}-${student.id}`,
+      session_id: session.id,
+      student_id: student.id,
+      status: 'present',
+      check_in_time: timeStr,
+      remarks: 'Verified via 15s Dynamic QR Token',
+      updated_by: student.name,
+      updated_at: new Date().toISOString(),
+    });
+  } else {
+    existingRecord.status = 'present';
+    existingRecord.check_in_time = timeStr;
+    existingRecord.remarks = 'Verified via 15s Dynamic QR Token';
+    existingRecord.updated_by = student.name;
+    existingRecord.updated_at = new Date().toISOString();
+  }
+
+  const course = memoryStore.courses.find((c) => c.id === session.course_id);
+  addAuditLog(student.name, 'SELF_QR_SCAN_VERIFIED', 'Session', session.id, `Recorded Present for Lecture #${session.lecture_number || 1} (${course?.code || 'Course'})`);
+
+  return {
+    success: true,
+    message: `Attendance marked Present for ${course?.code || ''}: Lecture #${session.lecture_number || 1} (${session.topic || session.title})`,
+    timestamp: timeStr,
+    lecture: {
+      id: session.id,
+      topic: session.topic || session.title,
+      lecture_number: session.lecture_number || 1,
+      course_title: course?.title,
+      course_code: course?.code,
+    },
+  };
+}
+
+// -------------------------------------------------------------
+// INSTITUTIONAL ADMIN REPORTS & ANALYTICS (REQUIREMENT 11)
+// -------------------------------------------------------------
+export async function getAdminReportSummary(): Promise<{
+  counts: {
+    totalStudents: number;
+    activeStudents: number;
+    totalFaculty: number;
+    activeFaculty: number;
+    totalSubjects: number;
+    totalClasses: number;
+    totalLectures: number;
+    activeLectures: number;
+    overallAttendancePct: number;
+  };
+  subjectStats: Array<{
+    id: string;
+    code: string;
+    title: string;
+    instructor_name: string;
+    totalSessions: number;
+    avgAttendancePct: number;
+  }>;
+  facultyStats: Array<{
+    id: string;
+    name: string;
+    employee_id: string;
+    department: string;
+    lecturesConducted: number;
+  }>;
+  attendanceDistribution: {
+    good: number;
+    warning: number;
+    critical: number;
+  };
+}> {
+  const students = await getAllStudentsWithDetails();
+  const faculty = await getAllFaculty();
+  const courses = await getCourses();
+  const classes = await getAllClasses();
+  const sessions = memoryStore.sessions;
+  const records = memoryStore.attendanceRecords;
+
+  const totalStudents = students.length;
+  const activeStudents = students.filter((s) => s.is_active !== false).length;
+  const totalFaculty = faculty.length;
+  const activeFaculty = faculty.filter((f) => f.is_active !== false).length;
+  const totalSubjects = courses.length;
+  const totalClasses = classes.length;
+  const totalLectures = sessions.length;
+  const activeLectures = sessions.filter((s) => !s.is_closed && s.status !== 'closed').length;
+
+  const presentRecords = records.filter((r) => r.status === 'present').length;
+  const totalRecords = records.length || 1;
+  const overallAttendancePct = Math.round((presentRecords / totalRecords) * 100);
+
+  // Subject statistics
+  const subjectStats = courses.map((c) => {
+    const courseSessions = sessions.filter((s) => s.course_id === c.id);
+    const sessionIds = new Set(courseSessions.map((s) => s.id));
+    const courseRecords = records.filter((r) => sessionIds.has(r.session_id));
+    const present = courseRecords.filter((r) => r.status === 'present').length;
+    const avgAttendancePct = courseRecords.length > 0 ? Math.round((present / courseRecords.length) * 100) : 85;
+
+    return {
+      id: c.id,
+      code: c.code,
+      title: c.title,
+      instructor_name: c.instructor_name,
+      totalSessions: courseSessions.length,
+      avgAttendancePct,
+    };
+  });
+
+  // Faculty statistics
+  const facultyStats = faculty.map((f) => {
+    const facSessions = sessions.filter((s) => s.faculty_id === f.id);
+    const dept = memoryStore.departments.find((d) => d.id === f.department_id);
+    return {
+      id: f.id,
+      name: f.name,
+      employee_id: f.employee_id,
+      department: dept?.name || 'Computer Science',
+      lecturesConducted: facSessions.length,
+    };
+  });
+
+  // Attendance distribution
+  let good = 0;
+  let warning = 0;
+  let critical = 0;
+
+  students.forEach((stu) => {
+    const pct = stu.stats?.percentage ?? 80;
+    if (pct >= 85) good++;
+    else if (pct >= 75) warning++;
+    else critical++;
+  });
+
+  return {
+    counts: {
+      totalStudents,
+      activeStudents,
+      totalFaculty,
+      activeFaculty,
+      totalSubjects,
+      totalClasses,
+      totalLectures,
+      activeLectures,
+      overallAttendancePct,
+    },
+    subjectStats,
+    facultyStats,
+    attendanceDistribution: { good, warning, critical },
+  };
 }
 
 

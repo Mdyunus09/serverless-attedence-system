@@ -10,7 +10,13 @@ import LeaveDesk from '@/components/LeaveDesk';
 import AuditDesk from '@/components/AuditDesk';
 import NeonModal from '@/components/NeonModal';
 import NewSessionModal from '@/components/NewSessionModal';
-import { Course, Session, DatabaseStatus } from '@/lib/types';
+import StudentManagementDesk from '@/components/StudentManagementDesk';
+import EnrollStudentModal from '@/components/EnrollStudentModal';
+import FacultyManagementDesk from '@/components/FacultyManagementDesk';
+import SubjectClassDesk from '@/components/SubjectClassDesk';
+import LectureCockpit from '@/components/LectureCockpit';
+import AdminReportsDesk from '@/components/AdminReportsDesk';
+import { Course, Session, DatabaseStatus, Department, AcademicClass, Faculty } from '@/lib/types';
 import { AuthUser } from '@/lib/auth/types';
 import {
   Calendar,
@@ -24,7 +30,19 @@ import {
   ShieldCheck,
   ChevronRight,
   Sparkles,
+  GraduationCap,
+  UserPlus,
+  Briefcase,
+  BookOpen,
+  Layers,
+  BarChart3,
 } from 'lucide-react';
+
+const DEFAULT_DEPARTMENTS: Department[] = [
+  { id: 'dept-1', code: 'CS', name: 'Computer Science & Engineering', faculty_head: 'Dr. Alistair Vance' },
+  { id: 'dept-2', code: 'MATH', name: 'Mathematics & Computing', faculty_head: 'Prof. Elena Rostova' },
+  { id: 'dept-3', code: 'EE', name: 'Electrical Engineering', faculty_head: 'Dr. Marcus Thorne' },
+];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -34,24 +52,31 @@ export default function Dashboard() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<'rollcall' | 'analytics' | 'leave' | 'audit'>('rollcall');
+  const [classes, setClasses] = useState<AcademicClass[]>([]);
+  const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [activeTab, setActiveTab] = useState<'reports' | 'lectures' | 'rollcall' | 'students' | 'faculty' | 'curriculum' | 'analytics' | 'leave' | 'audit'>('rollcall');
 
   // Modals
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [isNeonModalOpen, setIsNeonModalOpen] = useState(false);
   const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false);
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
 
-  // Fetch initial courses, db status & current user
+  // Fetch initial courses, db status, classes, faculty & current user
   const fetchInitialData = useCallback(async () => {
     try {
-      const [coursesRes, dbRes, meRes] = await Promise.all([
+      const [coursesRes, dbRes, meRes, classRes, facRes] = await Promise.all([
         fetch('/api/courses'),
         fetch('/api/db'),
         fetch('/api/auth/me'),
+        fetch('/api/classes'),
+        fetch('/api/faculty'),
       ]);
       const coursesData = await coursesRes.json();
       const dbData = await dbRes.json();
       const meData = await meRes.json();
+      const classData = await classRes.json();
+      const facData = await facRes.json();
 
       if (meData.user) {
         if (meData.user.role === 'student') {
@@ -59,11 +84,22 @@ export default function Dashboard() {
           return;
         }
         setCurrentUser(meData.user);
+        if (meData.user.role === 'admin') {
+          setActiveTab((prev) => (prev === 'rollcall' ? 'reports' : prev));
+        } else if (meData.user.role === 'faculty') {
+          setActiveTab((prev) => (prev === 'reports' ? 'lectures' : prev));
+        }
       }
 
       if (coursesData.courses?.length > 0) {
         setCourses(coursesData.courses);
         setSelectedCourse(coursesData.courses[0]);
+      }
+      if (classData.classes) {
+        setClasses(classData.classes);
+      }
+      if (facData.faculty) {
+        setFaculty(facData.faculty);
       }
       setDbStatus(dbData);
     } catch (e) {
@@ -175,6 +211,35 @@ export default function Dashboard() {
         {/* Tabbed Navigation */}
         <div className="border-b border-white/10 flex items-center justify-between gap-4">
           <nav className="flex items-center gap-2 overflow-x-auto pb-px">
+            {/* Admin Overview Reports Tab */}
+            {(currentUser?.role === 'admin' || !currentUser) && (
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
+                  activeTab === 'reports'
+                    ? 'border-[#d9ad3c] text-[#e4c668] font-semibold'
+                    : 'border-transparent text-[#9e988f] hover:text-white'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                Institutional Reports
+              </button>
+            )}
+
+            {/* Lecture Cockpit & Dynamic QR Tab */}
+            <button
+              onClick={() => setActiveTab('lectures')}
+              className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
+                activeTab === 'lectures'
+                  ? 'border-[#d9ad3c] text-[#e4c668] font-semibold'
+                  : 'border-transparent text-[#9e988f] hover:text-white'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Lecture Cockpit &amp; Dynamic QR
+            </button>
+
+            {/* Live Terminal Tab */}
             <button
               onClick={() => setActiveTab('rollcall')}
               className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
@@ -187,6 +252,52 @@ export default function Dashboard() {
               Live Attendance Terminal
             </button>
 
+            {/* Admin-only Student Management Tab */}
+            {(currentUser?.role === 'admin' || !currentUser) && (
+              <button
+                onClick={() => setActiveTab('students')}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
+                  activeTab === 'students'
+                    ? 'border-[#d9ad3c] text-[#e4c668] font-semibold'
+                    : 'border-transparent text-[#9e988f] hover:text-white'
+                }`}
+              >
+                <GraduationCap className="w-3.5 h-3.5" />
+                Student Directory &amp; Accounts
+              </button>
+            )}
+
+            {/* Admin-only Faculty Management Tab */}
+            {(currentUser?.role === 'admin' || !currentUser) && (
+              <button
+                onClick={() => setActiveTab('faculty')}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
+                  activeTab === 'faculty'
+                    ? 'border-[#d9ad3c] text-[#e4c668] font-semibold'
+                    : 'border-transparent text-[#9e988f] hover:text-white'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                Faculty &amp; Staff
+              </button>
+            )}
+
+            {/* Admin-only Subjects & Classes Tab */}
+            {(currentUser?.role === 'admin' || !currentUser) && (
+              <button
+                onClick={() => setActiveTab('curriculum')}
+                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
+                  activeTab === 'curriculum'
+                    ? 'border-[#d9ad3c] text-[#e4c668] font-semibold'
+                    : 'border-transparent text-[#9e988f] hover:text-white'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                Subjects &amp; Classes
+              </button>
+            )}
+
+            {/* Compliance Watchlist */}
             <button
               onClick={() => setActiveTab('analytics')}
               className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
@@ -199,6 +310,7 @@ export default function Dashboard() {
               Shortage &amp; Compliance Watchlist
             </button>
 
+            {/* Leave Applications */}
             <button
               onClick={() => setActiveTab('leave')}
               className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
@@ -211,6 +323,7 @@ export default function Dashboard() {
               Leave Applications Desk
             </button>
 
+            {/* Department Audit */}
             <button
               onClick={() => setActiveTab('audit')}
               className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${
@@ -246,6 +359,18 @@ export default function Dashboard() {
         </div>
 
         {/* Tab Panels */}
+        {activeTab === 'reports' && (
+          <AdminReportsDesk />
+        )}
+
+        {activeTab === 'lectures' && (
+          <LectureCockpit
+            currentUser={currentUser}
+            courses={courses}
+            classes={classes}
+          />
+        )}
+
         {activeTab === 'rollcall' && (
           <div>
             {selectedSession ? (
@@ -276,6 +401,31 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'students' && (
+          <StudentManagementDesk
+            departments={DEFAULT_DEPARTMENTS}
+            onOpenEnrollModal={() => setIsEnrollModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'faculty' && (
+          <FacultyManagementDesk
+            departments={DEFAULT_DEPARTMENTS}
+            courses={courses}
+            classes={classes}
+          />
+        )}
+
+        {activeTab === 'curriculum' && (
+          <SubjectClassDesk
+            departments={DEFAULT_DEPARTMENTS}
+            courses={courses}
+            classes={classes}
+            faculty={faculty}
+            onDataChanged={fetchInitialData}
+          />
         )}
 
         {activeTab === 'analytics' && selectedCourse && (
@@ -320,6 +470,18 @@ export default function Dashboard() {
           }}
         />
       )}
+
+      {/* Enroll Student Modal */}
+      <EnrollStudentModal
+        isOpen={isEnrollModalOpen}
+        onClose={() => setIsEnrollModalOpen(false)}
+        departments={DEFAULT_DEPARTMENTS}
+        classes={classes}
+        onStudentEnrolled={() => {
+          fetchInitialData();
+          fetchSessions();
+        }}
+      />
 
       {/* Footer */}
       <footer className="mt-auto border-t border-white/10 py-4 px-4 text-center text-xs font-mono text-[#6b6660]">

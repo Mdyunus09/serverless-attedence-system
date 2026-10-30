@@ -82,8 +82,11 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // 3. Unauthenticated users -> Redirect to /login
+  // 3. Unauthenticated users -> 401 for API, Redirect to /login for pages
   if (!isAuthenticated) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized: Authentication session required' }, { status: 401 });
+    }
     const loginUrl = new URL('/login', req.url);
     if (pathname !== '/') {
       loginUrl.searchParams.set('redirect', pathname);

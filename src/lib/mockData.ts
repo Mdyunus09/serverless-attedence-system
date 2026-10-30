@@ -1,4 +1,16 @@
-import { Department, Course, Student, Session, AttendanceRecord, LeaveRequest, AuditLog, User } from './types';
+import {
+  Department,
+  Course,
+  Student,
+  Session,
+  AttendanceRecord,
+  LeaveRequest,
+  AuditLog,
+  User,
+  AcademicClass,
+  Faculty,
+  SubjectAssignment,
+} from './types';
 
 export const initialDepartments: Department[] = [
   { id: 'dept-1', code: 'CS', name: 'Computer Science & Engineering', faculty_head: 'Dr. Alistair Vance' },
@@ -70,20 +82,20 @@ export const initialCourses: Course[] = [
 ];
 
 export const initialStudents: Student[] = [
-  { id: 'stu-1', roll_number: 'CS2023-001', name: 'Arjun Mehta', email: 'arjun.m@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1101' },
-  { id: 'stu-2', roll_number: 'CS2023-004', name: 'Zara K. Sterling', email: 'zara.s@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1104' },
-  { id: 'stu-3', roll_number: 'CS2023-009', name: 'Devanagari Rao', email: 'dev.rao@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1109' },
-  { id: 'stu-4', roll_number: 'CS2023-012', name: 'Chloe Montgomery', email: 'chloe.m@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1112' },
-  { id: 'stu-5', roll_number: 'CS2023-015', name: 'Julian Hayes', email: 'julian.h@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1115' },
-  { id: 'stu-6', roll_number: 'CS2023-018', name: 'Ananya Sharma', email: 'ananya.s@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1118' },
-  { id: 'stu-7', roll_number: 'CS2023-022', name: 'Kaelen O\'Connor', email: 'kaelen.o@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1122' },
-  { id: 'stu-8', roll_number: 'CS2023-025', name: 'Priya Nambiar', email: 'priya.n@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1125' },
-  { id: 'stu-9', roll_number: 'CS2023-029', name: 'Liam Takahashi', email: 'liam.t@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1129' },
-  { id: 'stu-10', roll_number: 'CS2023-033', name: 'Fatima Al-Mansoor', email: 'fatima.m@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1133' },
-  { id: 'stu-11', roll_number: 'CS2023-037', name: 'Niko Bellicose', email: 'niko.b@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1137' },
-  { id: 'stu-12', roll_number: 'CS2023-041', name: 'Maya Linwood', email: 'maya.l@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1141' },
-  { id: 'stu-13', roll_number: 'CS2023-046', name: 'Rohit Verma', email: 'rohit.v@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1146' },
-  { id: 'stu-14', roll_number: 'CS2023-050', name: 'Seraphina Frost', email: 'seraphina.f@student.univ.edu', department_id: 'dept-1', batch_year: '2023-2027', phone: '+1 (555) 234-1150' },
+  { id: 'stu-1', roll_number: 'CS2023-001', name: 'Arjun Mehta', email: 'arjun.m@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1101', is_active: true },
+  { id: 'stu-2', roll_number: 'CS2023-004', name: 'Zara K. Sterling', email: 'zara.s@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1104', is_active: true },
+  { id: 'stu-3', roll_number: 'CS2023-009', name: 'Devanagari Rao', email: 'dev.rao@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1109', is_active: true },
+  { id: 'stu-4', roll_number: 'CS2023-012', name: 'Chloe Montgomery', email: 'chloe.m@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1112', is_active: true },
+  { id: 'stu-5', roll_number: 'CS2023-015', name: 'Julian Hayes', email: 'julian.h@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1115', is_active: true },
+  { id: 'stu-6', roll_number: 'CS2023-018', name: 'Ananya Sharma', email: 'ananya.s@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1118', is_active: true },
+  { id: 'stu-7', roll_number: 'CS2023-022', name: 'Kaelen O\'Connor', email: 'kaelen.o@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1122', is_active: true },
+  { id: 'stu-8', roll_number: 'CS2023-025', name: 'Priya Nambiar', email: 'priya.n@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1125', is_active: true },
+  { id: 'stu-9', roll_number: 'CS2023-029', name: 'Liam Takahashi', email: 'liam.t@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1129', is_active: true },
+  { id: 'stu-10', roll_number: 'CS2023-033', name: 'Fatima Al-Mansoor', email: 'fatima.m@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1133', is_active: true },
+  { id: 'stu-11', roll_number: 'CS2023-037', name: 'Niko Bellicose', email: 'niko.b@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1137', is_active: true },
+  { id: 'stu-12', roll_number: 'CS2023-041', name: 'Maya Linwood', email: 'maya.l@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1141', is_active: true },
+  { id: 'stu-13', roll_number: 'CS2023-046', name: 'Rohit Verma', email: 'rohit.v@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1146', is_active: true },
+  { id: 'stu-14', roll_number: 'CS2023-050', name: 'Seraphina Frost', email: 'seraphina.f@student.univ.edu', department_id: 'dept-1', class_id: 'class-1', batch_year: '2023-2027', phone: '+1 (555) 234-1150', is_active: true },
 ];
 
 export const initialSessions: Session[] = [
@@ -290,5 +302,94 @@ export const initialUsers: User[] = [
     department_id: 'dept-1',
   },
 ];
+
+export const initialClasses: AcademicClass[] = [
+  {
+    id: 'class-1',
+    name: 'CS-Year3-SecA',
+    department_id: 'dept-1',
+    semester: 'Semester 5',
+    academic_year: '2024-2025',
+    student_count: 14,
+  },
+  {
+    id: 'class-2',
+    name: 'CS-Year3-SecB',
+    department_id: 'dept-1',
+    semester: 'Semester 5',
+    academic_year: '2024-2025',
+    student_count: 12,
+  },
+  {
+    id: 'class-3',
+    name: 'EE-Year2-SecA',
+    department_id: 'dept-3',
+    semester: 'Semester 3',
+    academic_year: '2024-2025',
+    student_count: 10,
+  },
+];
+
+export const initialFaculty: Faculty[] = [
+  {
+    id: 'fac-1',
+    user_id: 'user-fac-1',
+    employee_id: 'EMP-CS-101',
+    name: 'Dr. Aris Vandenberg',
+    email: 'faculty@cadence.edu',
+    department_id: 'dept-1',
+    designation: 'Associate Professor',
+    phone: '+1 (555) 019-2831',
+    is_active: true,
+    assigned_course_ids: ['course-1', 'course-2'],
+    assigned_class_ids: ['class-1', 'class-2'],
+  },
+  {
+    id: 'fac-2',
+    employee_id: 'EMP-CS-102',
+    name: 'Dr. Alistair Vance',
+    email: 'vance@cadence.edu',
+    department_id: 'dept-1',
+    designation: 'Professor & Department Head',
+    phone: '+1 (555) 019-2832',
+    is_active: true,
+    assigned_course_ids: ['course-1'],
+    assigned_class_ids: ['class-1'],
+  },
+  {
+    id: 'fac-3',
+    employee_id: 'EMP-MATH-201',
+    name: 'Prof. Elena Rostova',
+    email: 'rostova@cadence.edu',
+    department_id: 'dept-2',
+    designation: 'Professor',
+    phone: '+1 (555) 019-2833',
+    is_active: true,
+    assigned_course_ids: ['course-3'],
+    assigned_class_ids: ['class-1'],
+  },
+];
+
+export const initialSubjectAssignments: SubjectAssignment[] = [
+  {
+    id: 'assign-1',
+    course_id: 'course-1',
+    faculty_id: 'fac-1',
+    class_id: 'class-1',
+  },
+  {
+    id: 'assign-2',
+    course_id: 'course-2',
+    faculty_id: 'fac-1',
+    class_id: 'class-1',
+  },
+  {
+    id: 'assign-3',
+    course_id: 'course-3',
+    faculty_id: 'fac-3',
+    class_id: 'class-1',
+  },
+];
+
 
 
