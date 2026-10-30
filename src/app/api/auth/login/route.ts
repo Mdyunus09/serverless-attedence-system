@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authenticate } from '@/lib/auth/cognito';
+import { authenticate } from '@/lib/auth/authService';
 import { setSessionCookie } from '@/lib/auth/session';
 
 export async function POST(req: Request) {
@@ -25,11 +25,10 @@ export async function POST(req: Request) {
     const response = NextResponse.json({
       success: true,
       user: result.session.user,
-      isDemo: result.session.isDemo,
     });
 
-    // Set secure httpOnly cookie
-    setSessionCookie(response, result.session);
+    // Set secure httpOnly cookie with HMAC signature
+    await setSessionCookie(response, result.session);
 
     return response;
   } catch (error: any) {
@@ -39,4 +38,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

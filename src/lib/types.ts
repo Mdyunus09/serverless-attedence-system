@@ -1,4 +1,16 @@
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
+export type UserRole = 'admin' | 'faculty' | 'student';
+
+export interface User {
+  id: string;
+  email: string;
+  password_hash: string;
+  name: string;
+  role: UserRole;
+  student_id?: string;
+  department_id?: string;
+  created_at?: string;
+}
 
 export interface Department {
   id: string;

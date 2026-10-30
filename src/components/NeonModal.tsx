@@ -73,7 +73,7 @@ export default function NeonModal({ isOpen, onClose, onStatusChange }: Props) {
       const res = await fetch('/api/db', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setFeedback({ type: 'success', message: 'All 7 Neon database tables created and seeded successfully!' });
+        setFeedback({ type: 'success', message: 'All 8 Neon database tables (including users) created and seeded successfully!' });
         await fetchStatus();
         if (onStatusChange) onStatusChange();
       } else {

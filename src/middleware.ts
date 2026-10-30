@@ -2,17 +2,48 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const SESSION_COOKIE_NAME = 'cadence_auth_session';
+const SECRET = process.env.AUTH_SECRET || 'cadence-secret-salt-development-key-32b';
 
-function decodeSession(cookieValue?: string) {
+async function verifyAndDecodeSession(cookieValue?: string) {
   if (!cookieValue) return null;
   try {
-    let json: string;
-    if (typeof Buffer !== 'undefined') {
-      json = Buffer.from(cookieValue, 'base64').toString('utf-8');
-    } else {
-      json = atob(cookieValue);
+    const parts = cookieValue.split('.');
+    if (parts.length !== 2) return null;
+    const [payload, signature] = parts;
+
+    // Verify HMAC-SHA256 signature in Edge Runtime
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const expectedSig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+    const bytes = new Uint8Array(expectedSig);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
     }
+    const computedSignature = btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+    if (signature !== computedSignature) {
+      return null;
+    }
+
+    let base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    const decodedBinary = atob(base64);
+    const decodedBytes = new Uint8Array(decodedBinary.length);
+    for (let i = 0; i < decodedBinary.length; i++) {
+      decodedBytes[i] = decodedBinary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(decodedBytes);
     const session = JSON.parse(json);
+
     if (session.expiresAt && Date.now() > session.expiresAt) {
       return null;
     }
@@ -22,7 +53,7 @@ function decodeSession(cookieValue?: string) {
   }
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // 1. Allow public assets and auth API endpoints
@@ -36,7 +67,7 @@ export function middleware(req: NextRequest) {
   }
 
   const cookie = req.cookies.get(SESSION_COOKIE_NAME);
-  const session = decodeSession(cookie?.value);
+  const session = await verifyAndDecodeSession(cookie?.value);
   const isAuthenticated = Boolean(session?.user);
 
   // 2. Handle /login page
@@ -87,4 +118,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
-

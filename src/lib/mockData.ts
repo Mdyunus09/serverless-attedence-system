@@ -1,4 +1,4 @@
-import { Department, Course, Student, Session, AttendanceRecord, LeaveRequest, AuditLog } from './types';
+import { Department, Course, Student, Session, AttendanceRecord, LeaveRequest, AuditLog, User } from './types';
 
 export const initialDepartments: Department[] = [
   { id: 'dept-1', code: 'CS', name: 'Computer Science & Engineering', faculty_head: 'Dr. Alistair Vance' },
@@ -262,4 +262,33 @@ export const initialAuditLogs: AuditLog[] = [
     created_at: '2026-10-26T12:00:00Z',
   },
 ];
+
+export const initialUsers: User[] = [
+  {
+    id: 'user-admin-1',
+    email: 'admin@cadence.edu',
+    password_hash: '$2b$10$DS/WGpAkfTaUPPDZWdnyouXJeHxMuagq4RBL5zEg0xEB8sA/Orf2u', // admin123
+    name: 'Dr. Evelyn Vance',
+    role: 'admin',
+    department_id: 'dept-1',
+  },
+  {
+    id: 'user-fac-1',
+    email: 'faculty@cadence.edu',
+    password_hash: '$2b$10$2o3K4NbG58nMRHOc3TrPIOPI7.k2WF/kh55uMsr3xTEjxzU0QVnDy', // faculty123
+    name: 'Dr. Aris Vandenberg',
+    role: 'faculty',
+    department_id: 'dept-1',
+  },
+  {
+    id: 'user-stu-1',
+    email: 'student@cadence.edu',
+    password_hash: '$2b$10$6Vwbuht3ThoDt1f.02HNsOs.4RJ84BzqALh9wVF3m.EmRaYeqlPcG', // student123
+    name: 'Arjun Mehta',
+    role: 'student',
+    student_id: 'stu-1',
+    department_id: 'dept-1',
+  },
+];
+
 

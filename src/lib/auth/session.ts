@@ -1,10 +1,10 @@
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthUser, SessionData, UserRole } from './types';
+import { AuthUser, SessionData } from './types';
 
 export const SESSION_COOKIE_NAME = 'cadence_auth_session';
+const SECRET = process.env.AUTH_SECRET || 'cadence-secret-salt-development-key-32b';
 
-// Cookie options for secure serverless session management
 export const COOKIE_OPTIONS = {
   name: SESSION_COOKIE_NAME,
   httpOnly: true,
@@ -14,28 +14,82 @@ export const COOKIE_OPTIONS = {
   maxAge: 60 * 60 * 24, // 24 hours
 };
 
-/**
- * Encodes session data for storage in an httpOnly cookie
- */
-export function encodeSession(session: SessionData): string {
-  const json = JSON.stringify(session);
-  return Buffer.from(json).toString('base64');
+// Edge-safe Base64URL encoding/decoding
+function toBase64Url(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function fromBase64Url(base64url: string): string {
+  let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+async function signData(data: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(data));
+  const bytes = new Uint8Array(signature);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 /**
- * Decodes session data from a cookie string
+ * Encodes session data and signs it with HMAC-SHA256
  */
-export function decodeSession(cookieValue?: string): SessionData | null {
+export async function encodeSession(session: SessionData): Promise<string> {
+  const payload = toBase64Url(JSON.stringify(session));
+  const signature = await signData(payload);
+  return `${payload}.${signature}`;
+}
+
+/**
+ * Decodes and verifies the signature of a session token
+ */
+export async function decodeSession(cookieValue?: string): Promise<SessionData | null> {
   if (!cookieValue) return null;
   try {
-    const json = Buffer.from(cookieValue, 'base64').toString('utf-8');
+    const parts = cookieValue.split('.');
+    if (parts.length !== 2) return null;
+
+    const [payload, signature] = parts;
+    const expectedSignature = await signData(payload);
+
+    if (signature !== expectedSignature) {
+      console.warn('Tampered session token rejected.');
+      return null;
+    }
+
+    const json = fromBase64Url(payload);
     const session: SessionData = JSON.parse(json);
+
     // Check expiration
     if (session.expiresAt && Date.now() > session.expiresAt) {
       return null;
     }
     return session;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -47,7 +101,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const cookieStore = cookies();
     const cookie = cookieStore.get(SESSION_COOKIE_NAME);
-    const session = decodeSession(cookie?.value);
+    const session = await decodeSession(cookie?.value);
     return session?.user || null;
   } catch {
     return null;
@@ -55,9 +109,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 }
 
 /**
- * Helper to inspect the current session from a NextRequest (usable in middleware & route handlers)
+ * Helper to inspect the current session from a NextRequest
  */
-export function getSessionFromRequest(req: NextRequest): SessionData | null {
+export async function getSessionFromRequest(req: NextRequest): Promise<SessionData | null> {
   const cookie = req.cookies.get(SESSION_COOKIE_NAME);
   return decodeSession(cookie?.value);
 }
@@ -65,10 +119,11 @@ export function getSessionFromRequest(req: NextRequest): SessionData | null {
 /**
  * Attach the session cookie to a NextResponse
  */
-export function setSessionCookie(response: NextResponse, session: SessionData): NextResponse {
+export async function setSessionCookie(response: NextResponse, session: SessionData): Promise<NextResponse> {
+  const token = await encodeSession(session);
   response.cookies.set({
     ...COOKIE_OPTIONS,
-    value: encodeSession(session),
+    value: token,
   });
   return response;
 }
@@ -84,4 +139,3 @@ export function clearSessionCookie(response: NextResponse): NextResponse {
   });
   return response;
 }
-

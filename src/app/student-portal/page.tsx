@@ -250,7 +250,7 @@ function StudentCheckInContent() {
             />
             {isStudentLocked && (
               <span className="text-[10px] text-[#2dd4bf]/80 mt-1 block font-mono">
-                ✓ Identity verified via AWS Cognito RBAC (Anti-Proxy Protection Active)
+                ✓ Identity verified via Institutional RBAC (Anti-Proxy Protection Active)
               </span>
             )}
           </div>

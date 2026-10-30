@@ -10,9 +10,9 @@
     "db:init": "node scripts/init-db.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-cognito-identity-provider": "^3.1160.0",
     "@neondatabase/serverless": "^0.10.1",
-    "aws-jwt-verify": "^5.2.1",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "lucide-react": "^0.453.0",

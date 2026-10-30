@@ -12,11 +12,10 @@ import {
   KeyRound,
   AlertCircle,
   Sparkles,
-  Cloud,
+  Database,
   CheckCircle2,
 } from 'lucide-react';
-import { DEMO_USERS } from '@/lib/auth/cognito';
-import { UserRole } from '@/lib/auth/types';
+import { DEMO_USERS, UserRole } from '@/lib/auth/types';
 
 function LoginContent() {
   const router = useRouter();
@@ -27,14 +26,13 @@ function LoginContent() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cognitoConfigured, setCognitoConfigured] = useState<boolean>(false);
+  const [dbConnected, setDbConnected] = useState<boolean>(false);
 
   useEffect(() => {
-    // Check if Cognito is configured on backend
     fetch('/api/auth/me')
       .then((res) => res.json())
       .then((data) => {
-        setCognitoConfigured(Boolean(data.cognitoConfigured));
+        setDbConnected(Boolean(data.connected));
       })
       .catch(() => {});
   }, []);
@@ -113,17 +111,17 @@ function LoginContent() {
         {/* Auth Mode Indicator */}
         <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#0e1014] border border-white/5 text-xs font-mono">
           <div className="flex items-center gap-2">
-            <Cloud className={`w-3.5 h-3.5 ${cognitoConfigured ? 'text-[#2dd4bf]' : 'text-[#d9ad3c]'}`} />
-            <span className="text-[#9e988f]">Auth Provider:</span>
+            <Database className={`w-3.5 h-3.5 ${dbConnected ? 'text-[#2dd4bf]' : 'text-[#d9ad3c]'}`} />
+            <span className="text-[#9e988f]">Auth Store:</span>
           </div>
           <span
             className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-              cognitoConfigured
+              dbConnected
                 ? 'bg-[#2dd4bf]/10 text-[#2dd4bf] border border-[#2dd4bf]/30'
                 : 'bg-[#d9ad3c]/10 text-[#e4c668] border border-[#d9ad3c]/30'
             }`}
           >
-            {cognitoConfigured ? 'AWS Cognito Active' : 'Cognito Ready (Demo Mode)'}
+            {dbConnected ? 'Neon PostgreSQL (Cloud Pool)' : 'Neon PostgreSQL (Memory Fallback)'}
           </span>
         </div>
 
@@ -243,7 +241,7 @@ function LoginContent() {
 
         {/* Footer info */}
         <p className="text-center text-[11px] font-mono text-[#6b6660]">
-          Secured with AWS Cognito JWKS • Serverless Edge Session Cookies
+          Secured with Bcrypt &amp; HMAC-SHA256 • Serverless Edge Session Cookies
         </p>
       </div>
     </div>

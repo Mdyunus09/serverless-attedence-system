@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import bcrypt from 'bcryptjs';
 import {
   Department,
   Course,
@@ -9,6 +10,7 @@ import {
   AuditLog,
   DatabaseStatus,
   AttendanceStatus,
+  User,
 } from './types';
 import {
   initialDepartments,
@@ -18,6 +20,7 @@ import {
   initialAttendanceRecords,
   initialLeaveRequests,
   initialAuditLogs,
+  initialUsers,
 } from './mockData';
 
 // Global in-memory fallback store
@@ -29,6 +32,7 @@ interface MemoryStore {
   attendanceRecords: AttendanceRecord[];
   leaveRequests: LeaveRequest[];
   auditLogs: AuditLog[];
+  users: User[];
 }
 
 const globalForStore = globalThis as unknown as {
@@ -45,7 +49,10 @@ if (!globalForStore.memoryStore) {
     attendanceRecords: [...initialAttendanceRecords],
     leaveRequests: [...initialLeaveRequests],
     auditLogs: [...initialAuditLogs],
+    users: [...initialUsers],
   };
+} else if (!globalForStore.memoryStore.users) {
+  globalForStore.memoryStore.users = [...initialUsers];
 }
 
 const memoryStore = globalForStore.memoryStore;
@@ -226,6 +233,17 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
         details TEXT NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(64) PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        role VARCHAR(32) NOT NULL,
+        student_id VARCHAR(64) REFERENCES students(id) ON DELETE SET NULL,
+        department_id VARCHAR(64) REFERENCES departments(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Check if initial departments exist, if not seed
@@ -275,11 +293,22 @@ export async function initDatabaseSchema(): Promise<{ success: boolean; message:
       }
     }
 
+    // Check if initial users exist, if not seed
+    const userCheck = await client.query('SELECT COUNT(*) FROM users');
+    if (parseInt(userCheck.rows[0].count, 10) === 0) {
+      for (const u of initialUsers) {
+        await client.query(
+          'INSERT INTO users (id, email, password_hash, name, role, student_id, department_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [u.id, u.email, u.password_hash, u.name, u.role, u.student_id || null, u.department_id || null]
+        );
+      }
+    }
+
     await client.query('COMMIT');
     return {
       success: true,
       message: 'Neon PostgreSQL tables and seed data initialized successfully.',
-      tables: ['departments', 'courses', 'students', 'sessions', 'attendance_records', 'leave_requests', 'audit_logs'],
+      tables: ['departments', 'courses', 'students', 'sessions', 'attendance_records', 'leave_requests', 'audit_logs', 'users'],
     };
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -844,4 +873,52 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
   }
   return memoryStore.auditLogs;
 }
+
+// User & Authentication queries
+export async function findUserByEmail(email: string): Promise<User | null> {
+  const normalized = email.trim().toLowerCase();
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 LIMIT 1', [normalized]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon findUserByEmail query error, using memory fallback:', e);
+    }
+  }
+  const user = memoryStore.users?.find((u) => u.email.toLowerCase() === normalized);
+  return user || null;
+}
+
+export async function verifyUserPassword(
+  email: string,
+  plainPassword: string
+): Promise<{ success: boolean; user?: User; message?: string }> {
+  const user = await findUserByEmail(email);
+  if (!user) {
+    return { success: false, message: 'Invalid email or password.' };
+  }
+
+  const isMatch = bcrypt.compareSync(plainPassword, user.password_hash);
+  if (!isMatch) {
+    return { success: false, message: 'Invalid email or password.' };
+  }
+
+  return { success: true, user };
+}
+
+export async function getStudentById(studentId: string): Promise<Student | null> {
+  const pool = getPgPool();
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM students WHERE id = $1 OR LOWER(roll_number) = $2 LIMIT 1', [studentId, studentId.toLowerCase()]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.warn('Neon getStudentById query error:', e);
+    }
+  }
+  const student = memoryStore.students.find((s) => s.id === studentId || s.roll_number.toLowerCase() === studentId.toLowerCase());
+  return student || null;
+}
+
 
