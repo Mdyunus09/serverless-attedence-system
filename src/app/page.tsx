@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import LiveRollCall from '@/components/LiveRollCall';
 import QRTerminal from '@/components/QRTerminal';
@@ -10,6 +11,7 @@ import AuditDesk from '@/components/AuditDesk';
 import NeonModal from '@/components/NeonModal';
 import NewSessionModal from '@/components/NewSessionModal';
 import { Course, Session, DatabaseStatus } from '@/lib/types';
+import { AuthUser } from '@/lib/auth/types';
 import {
   Calendar,
   Clock,
@@ -25,6 +27,8 @@ import {
 } from 'lucide-react';
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -37,15 +41,25 @@ export default function Dashboard() {
   const [isNeonModalOpen, setIsNeonModalOpen] = useState(false);
   const [isNewSessionModalOpen, setIsNewSessionModalOpen] = useState(false);
 
-  // Fetch initial courses & db status
+  // Fetch initial courses, db status & current user
   const fetchInitialData = useCallback(async () => {
     try {
-      const [coursesRes, dbRes] = await Promise.all([
+      const [coursesRes, dbRes, meRes] = await Promise.all([
         fetch('/api/courses'),
         fetch('/api/db'),
+        fetch('/api/auth/me'),
       ]);
       const coursesData = await coursesRes.json();
       const dbData = await dbRes.json();
+      const meData = await meRes.json();
+
+      if (meData.user) {
+        if (meData.user.role === 'student') {
+          router.replace('/student-portal');
+          return;
+        }
+        setCurrentUser(meData.user);
+      }
 
       if (coursesData.courses?.length > 0) {
         setCourses(coursesData.courses);
@@ -55,7 +69,7 @@ export default function Dashboard() {
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchInitialData();
@@ -96,6 +110,7 @@ export default function Dashboard() {
         dbStatus={dbStatus}
         onOpenNeonModal={() => setIsNeonModalOpen(true)}
         onNewSession={() => setIsNewSessionModalOpen(true)}
+        currentUser={currentUser}
       />
 
       {/* Main Workspace */}
